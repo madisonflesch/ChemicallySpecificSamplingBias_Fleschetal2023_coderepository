@@ -1,0 +1,2746 @@
+## packages
+library(ggplot2)
+library(lubridate)
+library(zoo)
+library(maps)
+library(mapproj)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(readxl)
+library(hms)
+library(patchwork)
+library(RColorBrewer)
+library(colorRamps)
+library(ggpubr)
+library(vioplot)
+library(EnvStats)
+library(Kendall)
+library(ncdf4)
+library(gridExtra)
+library(datetimeutils)
+library(scales)
+library(chron)
+library(ggrepel)
+library(viridisLite)
+library(viridis)
+library(here)
+library(maditr)
+library(ggmosaic)
+library(reshape2)
+library(ggpp)
+
+
+## AERONET ####
+## DAILY ###
+aeronet <- read.csv("D:/MMF/ETA_proj/data/orig_combined_data/All_Sites_Times_Daily_averages_AOD20.dat", header=T, skip=6)
+aeronet <- aeronet[,c(1:7,10,19,22,25,26,80:82)]
+colnames(aeronet) <- c("AERONET_Site","Date","Time","Day_of_Year","AOD_1640nm","AOD_1020nm","AOD_870nm","AOD_675nm","AOD_500nm",
+                       "AOD_440nm","AOD_380nm","AOD_340nm","Latitude","Longitude","Site_Elevation")
+
+aeronet$Date <- as.Date(aeronet$Date, format="%d:%m:%Y")
+#subset lat lon [25,50] & [-125, -65]
+aeronet$Latitude <- ifelse(aeronet$Latitude < 25 | aeronet$Latitude > 50, NA, aeronet$Latitude)
+aeronet$Longitude <- ifelse(aeronet$Longitude < -124 | aeronet$Longitude > -66, NA, aeronet$Longitude)
+
+aeronet <- drop_na(aeronet, Latitude, Longitude)
+
+aeronet$Date <- as.Date(aeronet$Date, format="%d:%m:%Y")
+aeronet$Year <- as.numeric(substring(aeronet$Date,1,4))
+
+aeronetsites <- data.frame(AERONET_Site=aeronet$AERONET_Site, Latitude=aeronet$Latitude,Longitude=aeronet$Longitude)
+aeronetsites <- aeronetsites[!duplicated(aeronetsites),]
+
+aerositename <- as.vector(aeronetsites$AERONET_Site)
+
+aeronet.sitedate <- data.frame(Date=aeronet$Date, AERONET_Site=aeronet$AERONET_Site,
+                               Latitude=aeronet$Latitude, Longitude=aeronet$Longitude)
+
+for(i in aerositename){
+  site <- subset(aeronet.sitedate, aeronet.sitedate$AERONET_Site==i)
+  date1 <- head(site,1)
+  date2 <- tail(site,1)
+  i <- i
+  dfrm <- data.frame(i=i,date1=date1,date2=date2)
+  write.table(dfrm, file="D:/MMF/eta2/data/aero_site_dateranges.csv", sep=",", append=T, col.names=F, row.names=F)
+}
+
+#now reading the table back in!
+aeronet.sitedate <- read.csv("D:/MMF/eta2/data/aero_site_dateranges.csv", header=F)
+colnames(aeronet.sitedate) <- c("AERONET_Site","Date_Opened","AERONET_Site1","Latitude","Longitude","Date_Closed","AERONET_Site2",
+                                "Latitude1","Longitude1")
+aeronet.sitedate$AERONET_Site1 <- NULL
+aeronet.sitedate$AERONET_Site2 <- NULL
+aeronet.sitedate$Latitude1 <- NULL
+aeronet.sitedate$Longitude1 <- NULL
+
+#now fix the date columns and add years
+aeronet.sitedate$Date_Opened <- as.Date(aeronet.sitedate$Date_Opened, format="%Y-%m-%d")
+aeronet.sitedate$Date_Closed <- as.Date(aeronet.sitedate$Date_Closed, format="%Y-%m-%d")
+aeronet.sitedate$Year_Opened <- as.numeric(substring(aeronet.sitedate$Date_Opened,1,4))
+aeronet.sitedate$Year_Closed <- as.numeric(substring(aeronet.sitedate$Date_Closed,1,4))
+
+aeronet.sitedate$YearsOperated <- aeronet.sitedate$Year_Closed - aeronet.sitedate$Year_Opened
+
+aeronet.sitedate$Year_Closed <- ifelse(aeronet.sitedate$Year_Closed <= 2014 & aeronet.sitedate$AERONET_Site != "Fresno" & 
+                                         aeronet.sitedate$AERONET_Site !="Fresno_2", NA, aeronet.sitedate$Year_Closed)
+aeronet.sitedate <- drop_na(aeronet.sitedate, Year_Closed)
+aeronet.sitedate$Year_Opened <- ifelse(aeronet.sitedate$Year_Opened >= 2007 & aeronet.sitedate$AERONET_Site != "Fresno" & 
+                                         aeronet.sitedate$AERONET_Site !="Fresno_2", NA, aeronet.sitedate$Year_Opened)
+aeronet.sitedate <- drop_na(aeronet.sitedate, Year_Opened)
+
+aeronet <- merge(aeronet, aeronet.sitedate, by=c("AERONET_Site","Latitude","Longitude"))
+
+aeronetsites <- data.frame(AERONET_Site=aeronet$AERONET_Site, Latitude=aeronet$Latitude,Longitude=aeronet$Longitude)
+aeronetsites <- aeronetsites[!duplicated(aeronetsites),]
+write.csv(aeronetsites, "D:/MMF/eta2/data/aeronetsites.csv")
+
+#fix fresno site
+# aeronet$Latitude <- ifelse(aeronet$AERONET_Site=="Fresno_2", 36.78173, aeronet$Latitude)
+# aeronet$Longitude <- ifelse(aeronet$AERONET_Site=="Fresno_2", -119.77317, aeronet$Longitude)
+# aeronet$AERONET_Site <- ifelse(aeronet$AERONET_Site=="Fresno_2", "Fresno", aeronet$AERONET_Site)
+
+aeronet[aeronet==-999] <- NA
+
+
+
+## HOURLY ###
+aeronetall <- read.csv("D:/MMF/eta2/data/aeronet_allpoints_subset.csv", header=T)
+aeronetall <- aeronetall[,c(2:9,12,21,24,27:28,76:78)]
+colnames(aeronetall) <- c("AERONET_Site","Date","Time","Day_of_Year","Day_of_YearFraction","AOD_1640nm","AOD_1020nm","AOD_870nm",
+                          "AOD_675nm","AOD_500nm","AOD_440nm","AOD_380nm","AOD_340nm","Latitude","Longitude","Site_Elevation")
+
+aeronetall$Date <- as.Date(aeronetall$Date, format="%d:%m:%Y")
+aeronetall$Year <- as.numeric(substring(aeronetall$Date,1,4))
+
+aeronetall$Year <- ifelse(aeronetall$Year < 2000 | aeronetall$Year > 2019, NA, aeronetall$Year)
+aeronetall <- drop_na(aeronetall, Year)
+
+#fix fresno site
+# aeronetall$Latitude <- ifelse(aeronetall$AERONET_Site=="Fresno_2", 36.78173, aeronetall$Latitude)
+# aeronetall$Longitude <- ifelse(aeronetall$AERONET_Site=="Fresno_2", -119.77317, aeronetall$Longitude)
+# aeronetall$AERONET_Site <- ifelse(aeronetall$AERONET_Site=="Fresno_2", "Fresno", aeronetall$AERONET_Site)
+
+aeronetall[aeronetall==-999] <- NA
+
+aerositename <- sort(unique(aeronet$AERONET_Site))
+
+# for(i in aerositename){
+#   site <- subset(aeronetall, AERONET_Site==i)
+#   g <- ggplot(site, aes(Date, AOD_440nm))+ggtitle(i)+
+#     geom_point(shape=1, size=2, color="purple")+
+#     scale_x_date("Date", date_breaks="1 year", date_labels="%Y")+
+#     theme_classic(base_size=14)
+#   mypath <- file.path("D:/MMF/eta2/data/plots", paste(i,"alltimeseries.png", sep="_"))
+#   png(filename=mypath, width=8, height=4, units="in", res=300)
+#   print(g)
+#   dev.off()
+# }
+# 
+# 
+# for(i in aerositename){
+#   site <- subset(aeronet, AERONET_Site==i)
+#   a <- sum(site$Day_of_Year/site$Day_of_Year)
+#   print(i)
+#   print(a)
+# }
+
+#trim down daily AERONET dataframes to subset of sites w/good coverage 
+aeronet <- merge(aeronet, aerosites, by=c("AERONET_Site","Latitude","Longitude"))
+aeronetall <- merge(aeronetall, aerosites, by=c("AERONET_Site","Latitude","Longitude"))
+
+aeronetall$Hour <- as.numeric(substring(aeronetall$Time,1,2))
+aeronethr <- aggregate(aeronetall, by=list(aeronetall$AERONET_Site,aeronetall$Date,aeronetall$Hour), FUN="mean", na.rm=T)
+aeronethr$AERONET_Site <- aeronethr$Group.1
+aeronethr$Date <- aeronethr$Group.2
+aeronethr$Hour <- aeronethr$Group.3
+aeronethr$Group.1 <- NULL
+aeronethr$Group.2 <- NULL
+aeronethr$Group.3 <- NULL
+
+remove(aeronetall) #help computer memory
+
+## EPA AND IMPROVE COMP ####
+csn <- read_xlsx("D:/MMF/eta2/data/comp/csn_2000-2022.xlsx", col_names=T)
+colnames(csn) <- c("Dataset","AQSCode","POC","Date","AuxID","SiteName","Lat_EPA","Lon_EPA","Elevation_EPA","State","EPACode",
+                   "PM88502","AL","AmmIon","CA","EC","OC1","OC2","OC3","OC4","OCP","OCtot","CHL","FE","MG","PM2.5","NO3","K","SI",
+                   "NAf","SO4","TI")
+csn$Date <- as.Date(csn$Date, format="%m/%d/%Y")
+
+csn <- merge(csn, aqsaero, by=c("AQSCode","Lat_EPA","Lon_EPA","Elevation_EPA"))
+csn <- csn[,c(1:4,7,9,11:37,41:42)]
+
+
+#looping through files
+getwd()
+setwd("D:/MMF/eta2/data/epa/epa_chemdata/")
+epafiles <- list.files("D:/MMF/eta2/data/epa/epa_chemdata/", pattern="daily_SPEC_20.*.")
+epafiles
+
+epac <- list()
+epachem <- list()
+for (i in 1:(length(epafiles))){
+  epa <- read.csv(epafiles[[i]], sep=",", header=T) 
+  epa$State.Code <- str_pad(epa$State.Code, 2, pad="0")
+  epa$County.Code <- str_pad(epa$County.Code, 3, pad="0")
+  epa$Site.Num <- str_pad(epa$Site.Num, 4, pad="0")
+  epa$AQSCode <- str_c(epa$State.Code, epa$County.Code, epa$Site.Num, sep="")
+  colnames(epa) <- c("State.Code","County.Code","Site.Number","Parameter.Code","POC","Lat_EPA","Lon_EPA",
+                     "Datum","Parameter.Name","Sample.Duration","Pollutant.Standard","Date","Units.of.Measure",
+                     "Event.Type","Observation.Count","Observation.Percent","Arithmetic.Mean","First.Max.Value",
+                     "First.Max.Hour","AQI","Method.Code","Method.Name","Local.Site.Name","Address","State.Name",
+                     "County.Name","City.Name","CBSA.Name","Date.of.Last.Change","AQSCode")
+  epamerge <- merge(aqsaero, epa, by=c("Local.Site.Name","Lat_EPA","Lon_EPA","AQSCode","Datum","State.Code","County.Code",
+                                           "Site.Number","State.Name","County.Name","City.Name"))
+  epac[[i]] <- epamerge
+}
+epachem <- do.call(rbind, epac)
+
+remove(epa)
+remove(epac)
+remove(epamerge)
+
+
+epachem <- epachem[,c(1:4,6:8,13:14,17,21:24,26,31:33)]
+epachem <- subset(epachem, Sample.Duration=="24 HOUR")
+epachem$Sample.Duration <- NULL
+epachem$First.Max.Hour <- NULL
+epachem$First.Max.Value <- NULL
+epachem$Parameter.Code <- NULL
+epachem$Date <- as.Date(epachem$Date)
+
+epachem <- subset(epachem, Parameter.Name=="Aluminum PM2.5 LC" | Parameter.Name=="Ammonium Ion PM2.5 LC" | 
+                    Parameter.Name=="Calcium PM2.5 LC" | Parameter.Name=="Chloride PM2.5 LC" | Parameter.Name=="EC PM2.5 LC TOT" |
+                    Parameter.Name=="Iron PM2.5 LC" | Parameter.Name=="Magnesium PM2.5 LC" | Parameter.Name=="OC PM2.5 LC TOT" | 
+                    Parameter.Name=="OC1 PM2.5 LC" | Parameter.Name=="OC2 PM2.5 LC" | Parameter.Name=="OC3 PM2.5 LC" | 
+                    Parameter.Name=="OC4 PM2.5 LC" | Parameter.Name=="OP PM2.5 LC TOT" | Parameter.Name=="Potassium PM2.5 LC" | 
+                    Parameter.Name=="Silicon PM2.5 LC" | Parameter.Name=="Sodium PM2.5 LC" | Parameter.Name=="Sulfate PM2.5 LC" | 
+                    Parameter.Name=="Titanium PM2.5 LC" | Parameter.Name=="Total Nitrate PM2.5 LC")
+
+#add PM2.5 data
+epa88502 <- read_xlsx("D:/MMF/eta2/data/comp/epa_88502_dailypm_2000-2019.xlsx", col_names=T)
+epa88101 <- read_xlsx("D:/MMF/eta2/data/comp/epa_88101_dailypm_2000-2019.xlsx", col_names=T)
+colnames(epa88502) <- c("Dataset","AQSCode","POC","Date","Lat_EPA","Lon_EPA","PM2.5")
+colnames(epa88101) <- c("Dataset","AQSCode","POC","Date","Lat_EPA","Lon_EPA","PM2.5")
+
+epaday <- rbind(epa88502, epa88101)
+epaday$Dataset <- NULL
+epaday$Date <- as.Date(epaday$Date, format="%m/%d/%Y")
+epaday <- aggregate(epaday, by=list(epaday$AQSCode, epaday$Date), FUN="mean", na.rm=T)
+epaday$AQSCode <- epaday$Group.1
+epaday$Group.1 <- NULL
+epaday$Group.2 <- NULL
+epaday$POC <- NULL
+
+epachem1 <- merge(epachem, epaday, by=c("AQSCode","Lat_EPA","Lon_EPA","Date"), all=T)
+epachem1 <- drop_na(epachem1, Parameter.Name)
+
+epachem.1 <- aggregate(epachem1, by=list(epachem1$AERONET_Site,epachem1$Date,epachem1$Parameter.Name), FUN="mean", na.rm=T)
+epachem.1$AERONET_Site <- epachem.1$Group.1
+epachem.1$Parameter.Name <- epachem.1$Group.3
+epachem.1$Group.1 <- NULL
+epachem.1$Group.2 <- NULL
+epachem.1$Group.3 <- NULL
+epachem.1$POC <- NULL
+
+epachem.1$Parameter.Name <- gsub(pattern=" ", replacement="_", x=epachem.1$Parameter.Name)
+
+epachem2 <- dcast(data=epachem.1, formula=Lat_EPA+Lon_EPA+AQSCode+State.Code+County.Code+Site.Number+AERONET_Site+Elevation_EPA+
+                    GMT.Offset+Date+PM2.5~Parameter.Name, value.var=c("Arithmetic.Mean"), fun.aggregate=mean, fill=-999)
+epachem2[epachem2==-999] <- NA
+
+epachem2$SiteCode <- ifelse(epachem2$AERONET_Site=="Billerica", "LOND1",
+                                ifelse(epachem2$AERONET_Site=="BONDVILLE", "BOND1",
+                                       ifelse(epachem2$AERONET_Site=="Fresno", "FRES1", 
+                                              ifelse(epachem2$AERONET_Site=="GSFC", "WASH1",
+                                                     ifelse(epachem2$AERONET_Site=="MD_Science_Center", "WASH1", 
+                                                            ifelse(epachem2$AERONET_Site=="Sioux_Falls", "BLMO1",
+                                                                  ifelse(epachem2$AERONET_Site=="CCNY", "CCNY1",
+                                                                         ifelse(epachem2$AERONET_Site=="Fresno_2", "FRES1", NA))))))))
+
+
+epachem2 <- merge(epachem2, ecmwf, by=c("SiteCode","Date"))
+colnames(epachem2) <- c("SiteCode","Date","Lat","Lon","AQSCode","State.Code","County.Code","Site.Number","AERONET_Site","Elev","GMT.Offset",
+                        "PM2.5","AL","AmmIon","CA","CHL","EC","FE","MG","OC1","OC2","OC3","OC4","OCtot","OP","K","SI","NAf","SO4","TI","NO3",
+                        "sfc_press","pbl","sfc_temp","tdew","Day","Month","Year","t_celsius","td_celsius","es_td","es_t","RH","rh")
+
+epachem2 <- drop_na(epachem2, NO3, SO4)
+
+epachem2$CA <- replace(epachem2$CA, is.na(epachem2$CA), 0)
+epachem2$CA <- ifelse(epachem2$CA < 0, 0, epachem2$CA)
+epachem2$CHL <- replace(epachem2$CHL, is.na(epachem2$CHL), 0)
+epachem2$CHL <- ifelse(epachem2$CHL < 0, 0, epachem2$CHL)
+epachem2$MG <- replace(epachem2$MG, is.na(epachem2$MG), 0)
+epachem2$MG <- ifelse(epachem2$MG < 0, 0, epachem2$MG)
+epachem2$K <- replace(epachem2$K, is.na(epachem2$K), 0)
+epachem2$K <- ifelse(epachem2$K < 0, 0, epachem2$K)
+epachem2$NAf <- replace(epachem2$NAf, is.na(epachem2$NAf), 0)
+epachem2$NAf <- ifelse(epachem2$NAf < 0, 0, epachem2$NAf)
+epachem2$SO4 <- replace(epachem2$SO4, is.na(epachem2$SO4), 0)
+epachem2$SO4 <- ifelse(epachem2$SO4 < 0, 0, epachem2$SO4)
+epachem2$NO3 <- replace(epachem2$NO3, is.na(epachem2$NO3), 0)
+epachem2$NO3 <- ifelse(epachem2$NO3 < 0, 0, epachem2$NO3)
+
+#now merge with AERONET!! 
+aeroepa <- merge(aeronet, epachem2, by=c("AERONET_Site","Date","Year"))
+aeroepa <- aeroepa[,-c(6,17:25)]
+
+write.csv(aeroepa, "D:/MMF/eta2/data/isorropia/aeroepa_isoinputs.csv")
+
+epaiso <- read.table("C:/Users/madif/Desktop/ISO/eta2/aeroepaall.dat", header=T)
+
+aeroepa$ALW <- epaiso$WATER
+
+
+aerocsn <- merge(aeronet, csn, by=c("AERONET_Site","Date"))
+aerocsn <- aerocsn[,c(1:4,6:16,22:53)]
+aerocsn$SiteCode <- ifelse(aerocsn$AERONET_Site=="Billerica", "LOND1",
+                           ifelse(aerocsn$AERONET_Site=="CCNY", "CCNY1",
+                                  ifelse(aerocsn$AERONET_Site=="Fresno", "FRES1",
+                                         ifelse(aerocsn$AERONET_Site=="Fresno_2", "FRES1", NA))))
+aerocsn <- merge(aerocsn, ecmwf, by=c("SiteCode","Date","Year"))
+
+
+#IMPROVE
+improvesites <- read_xlsx("D:/MMF/eta2/data/comp/IMPROVE_Sites.xlsx", col_names=T)
+
+impnames <- improvesites$SiteCode
+
+imps <- list()
+impaero <- list()
+for(i in impnames){
+  imp <- subset(improvesites, SiteCode==i)
+  imp1 <- data.frame(near=ifelse(imp$Lat >= aerosites$MinLat & imp$Lat <= aerosites$MaxLat & 
+                                   imp$Lon >= aerosites$MinLon & imp$Lon <= aerosites$MaxLon, 1, 2))
+  imp1$SiteCode <- i
+  imp1$AERONET_Site <- aerosites$AERONET_Site
+  imps[[i]] <- imp1
+}
+impaero <- do.call(rbind, imps)
+impaero <- subset(impaero, near==1)
+rownames(impaero) <- NULL
+
+impaero <- merge(impaero, improvesites, by=c("SiteCode"))
+
+remove(imp)
+remove(imp1)
+remove(imps)
+
+improve <- read_xlsx("D:/MMF/eta2/data/comp/improve_allyears.xlsx", col_names=T)
+colnames(improve) <- c("Dataset","SiteCode","POC","Date","SiteName","LatIMP","LonIMP","ElevIMP","AL","ammNO3","ammSO4","CA","EC",
+                       "OC1","OC2","OC3","OC4","OP","OCtot","CHL","FE","MG","PM2.5","NO3","K","SI","NAf","SO4","TI")
+improve <- merge(improve, impaero, by=c("SiteCode","SiteName"))
+improve <- improve[,c(1:2,5:31)]
+improve$Date <- as.Date(improve$Date, format="%m/%d/%Y")
+
+aeroimp <- merge(aeronet, improve, by=c("AERONET_Site","Date"))
+aeroimp <- merge(aeroimp, ecmwf, by=c("SiteCode","Date","Year"))
+
+
+aerocsn[aerocsn==-999] <- NA
+aeroimp[aeroimp==-999] <- NA
+
+aerocsn <- drop_na(aerocsn, NO3, SO4)
+aeroimp <- drop_na(aeroimp, NO3, SO4)
+
+aerocsn$CA <- ifelse(is.na(aerocsn$CA) | aerocsn$CA < 0, 0, aerocsn$CA)
+aerocsn$CHL <- ifelse(is.na(aerocsn$CHL) | aerocsn$CHL < 0, 0, aerocsn$CHL)
+aerocsn$MG <- ifelse(is.na(aerocsn$MG) | aerocsn$MG < 0, 0, aerocsn$MG)
+aerocsn$K <- ifelse(is.na(aerocsn$K) | aerocsn$K < 0, 0, aerocsn$K)
+aerocsn$NAf <- ifelse(is.na(aerocsn$NAf) | aerocsn$NAf < 0, 0, aerocsn$NAf)
+aerocsn$NO3 <- ifelse(is.na(aerocsn$NO3) | aerocsn$NO3 < 0, 0, aerocsn$NO3)
+aerocsn$SO4 <- ifelse(is.na(aerocsn$SO4) | aerocsn$SO4 < 0, 0, aerocsn$SO4)
+aerocsn$AmmIon <- ifelse(is.na(aerocsn$AmmIon) | aerocsn$AmmIon < 0, 0, aerocsn$AmmIon)
+
+aeroimp$CA <- ifelse(is.na(aeroimp$CA) | aeroimp$CA < 0, 0, aeroimp$CA)
+aeroimp$CHL <- ifelse(is.na(aeroimp$CHL) | aeroimp$CHL < 0, 0, aeroimp$CHL)
+aeroimp$MG <- ifelse(is.na(aeroimp$MG) | aeroimp$MG < 0, 0, aeroimp$MG)
+aeroimp$K <- ifelse(is.na(aeroimp$K) | aeroimp$CA < 0, 0, aeroimp$K)
+aeroimp$NAf <- ifelse(is.na(aeroimp$NAf) | aeroimp$NAf < 0, 0, aeroimp$NAf)
+aeroimp$NO3 <- ifelse(is.na(aeroimp$NO3) | aeroimp$NO3 < 0, 0, aeroimp$NO3)
+aeroimp$SO4 <- ifelse(is.na(aeroimp$SO4) | aeroimp$SO4 < 0, 0, aeroimp$SO4)
+
+
+#write CSN & IMP files to CSV and run ISORROPIA
+write.csv(aerocsn, "D:/MMF/eta2/data/isorropia/aerocsn_isoinputs.csv")
+write.csv(aeroimp, "D:/MMF/eta2/data/isorropia/aeroimp_isoinputs.csv")
+
+csniso <- read.table("C:/Users/madif/Desktop/ISO/eta2/csnall.dat", header=T)
+impiso <- read.table("C:/Users/madif/Desktop/ISO/eta2/impall.dat", header=T)
+
+aerocsn$ALW <- csniso$WATER
+aeroimp$ALW <- impiso$WATER
+
+aerocsn$PM2.5 <- aerocsn$PM88502
+aerocsn$PM88502 <- NULL
+aerocsn$ammNO3 <- NA
+aerocsn$ammSO4 <- NA
+aerocsn <- aerocsn[,-c(44:47)]
+
+aeroimp$AmmIon <- NA
+aeroimp$EPACode <- NA
+aeroimp$AQSCode <- NA
+aeroimp <- aeroimp[,-c(7,18:26)]
+
+aeroepa$GMT.Offset <- NULL
+aeroepa$State.Code <- NULL
+aeroepa$County.Code <- NULL
+aeroepa$Site.Number <- NULL
+aeroepa$SiteName <- NA
+aeroepa$ammNO3 <- NA
+aeroepa$EPACode <- NA
+aeroepa$ammSO4 <- NA
+aeroepa$near <- 1
+
+colnames(aerocsn) <- c("SiteCode","Date","Year","AERONET_Site","Latitude","Longitude","Day_of_Year","AOD_1640nm","AOD_1020nm","AOD_870nm",
+                       "AOD_675nm","AOD_500nm","AOD_440nm","AOD_380nm","AOD_340nm","Site_Elevation","AQSCode","Lat","Lon","Elev",
+                       "SiteName","EPACode","AL","AmmIon","CA","EC","OC1","OC2","OC3","OC4","OP","OCtot","CHL","FE","MG","PM2.5","NO3",
+                       "K","SI","NAf","SO4","TI","near","sfc_press","pbl","sfc_temp","tdew","Day","Month","t_celsius","td_celsius",
+                       "es_td","es_t","RH","rh","ALW","ammNO3","ammSO4")
+colnames(aeroimp) <- c("SiteCode","Date","Year","AERONET_Site","Latitude","Longitude","Day_of_Year","AOD_1640nm","AOD_1020nm","AOD_870nm",
+                       "AOD_675nm","AOD_500nm","AOD_440nm","AOD_380nm","AOD_340nm","Site_Elevation","SiteName","Lat","Lon","Elev","AL",
+                       "ammNO3","ammSO4","CA","EC","OC1","OC2","OC3","OC4","OP","OCtot","CHL","FE","MG","PM2.5","NO3","K","SI","NAf",
+                       "SO4","TI","near","sfc_press","pbl","sfc_temp","tdew","Day","Month","t_celsius","td_celsius","es_td","es_t","RH",
+                       "rh","ALW","AmmIon","EPACode","AQSCode")
+
+aerocsn <- aerocsn[,c(1:16,21,18:20,23,57:58,25:56,24,22,17)]
+
+aeroepa <- aeroepa[,c(16,2:3,1,4:15,54,17:18,20,22,55,57,24,26,29:32,34,33,25,27:28,21,40,35:39,58,41:53,23,19,56)]
+
+aerocomp <- rbind(aeroimp, aerocsn, aeroepa)
+aerocomp$EPACode <- NULL
+aerocomp$near <- NULL
+
+aerocomp$AERONET_Site <- ifelse(aerocomp$AERONET_Site=="Fresno_2", "Fresno", aerocomp$AERONET_Site)
+
+echem3 <- read.csv("D:/MMF/eta2/data/aeroepachem3.csv", header=T)
+echem3 <- echem3[,-c(1,18:20,41:45,48,52)]
+colnames(echem3) <- c("SiteCode","AERONET_Site","Date","Year","Month","Day_of_Year","AOD_1640nm","AOD_1020nm","AOD_870nm","AOD_675nm",
+                      "AOD_500nm","AOD_440nm","AOD_380nm","AOD_340nm","Latitude","Longitude","AmmIon","CA","CHL","MG","K","NAf","SO4",
+                      "NO3","sfc_press","pbl","sfc_temp","tdew","Day","t_celsius","td_celsius","es_td","es_t","RH","rh","ALW","ammNO3",
+                      "ammSO4","Lat","Lon","PM2.5")
+echem3$SiteCode <- ifelse(echem3$SiteCode=="BILL1", "LOND1", echem3$SiteCode)
+echem3$Site_Elevation <- NA
+echem3$SiteName <- NA
+echem3$Elev <- NA
+echem3$AL <- NA
+echem3$EC <- NA
+echem3$OC1 <- NA
+echem3$OC2 <- NA
+echem3$OC3 <- NA
+echem3$OC4 <- NA
+echem3$OP <- NA
+echem3$OCtot <- NA
+echem3$FE <- NA
+echem3$SI <- NA
+echem3$TI <- NA
+echem3$AQSCode <- NA
+
+echem3 <- echem3[,c(1,3:4,2,15:16,6:14,42:43,39:40,44:45,37:38,18,46:52,19,53,20,41,24,21,54,22:23,55,25:29,5,30:36,17,56)]
+aerocomp <- rbind(aerocomp, echem3)
+
+aerocomp$CA <- as.numeric(aerocomp$CA)
+aerocomp$EC <- as.numeric(aerocomp$EC)
+
+
+## calculate OM:OC ratios by site and season! 
+YrQtr <- as.yearqtr(as.yearmon(aerocomp$Date, "%Y-%m-%d") + 1/12)
+aerocomp$Season <- as.numeric(factor(format(YrQtr, "%q"), levels=1:4, labels=c("1","2","3","4")))
+aerocomp$YrQtr <- as.yearqtr(as.yearmon(aerocomp$Date, "%Y-%m-%d") + 1/12)
+aerocomp$Year2 <- ifelse(aerocomp$Month==12, aerocomp$Year+1, aerocomp$Year)
+
+aerocomp$AL <- ifelse(aerocomp$AL<0, NA, aerocomp$AL)
+aerocomp$ammNO3 <- ifelse(aerocomp$ammNO3<0, NA, aerocomp$ammNO3)
+aerocomp$ammSO4 <- ifelse(aerocomp$ammSO4<0, NA, aerocomp$ammSO4)
+aerocomp$CA <- ifelse(aerocomp$CA<0, NA, aerocomp$CA)
+aerocomp$EC <- ifelse(aerocomp$EC<0, NA, aerocomp$EC)
+aerocomp$OC1 <- ifelse(aerocomp$OC1<0, NA, aerocomp$OC1)
+aerocomp$OC2 <- ifelse(aerocomp$OC2<0, NA, aerocomp$OC2)
+aerocomp$OC3 <- ifelse(aerocomp$OC3<0, NA, aerocomp$OC3)
+aerocomp$OC4 <- ifelse(aerocomp$OC4<0, NA, aerocomp$OC4)
+aerocomp$OP <- ifelse(aerocomp$OP<0, NA, aerocomp$OP)
+aerocomp$OCtot <- ifelse(aerocomp$OCtot<0, NA, aerocomp$OCtot)
+aerocomp$CHL <- ifelse(aerocomp$CHL<0, NA, aerocomp$CHL)
+aerocomp$FE <- ifelse(aerocomp$FE<0, NA, aerocomp$FE)
+aerocomp$PM2.5 <- ifelse(aerocomp$PM2.5<0, NA, aerocomp$PM2.5)  
+aerocomp$SI <- ifelse(aerocomp$SI<0, NA, aerocomp$SI)
+aerocomp$NAf <- ifelse(aerocomp$NAf<0, NA, aerocomp$NAf)
+aerocomp$TI <- ifelse(aerocomp$TI<0, NA, aerocomp$TI)
+
+#find soil values
+#SOIL==(2.2xAl + 2.49xSi + 1.63xCa + 2.42xFe +1.94xTi)
+aerocomp$soil <- (2.2 * aerocomp$AL) + (2.49 * aerocomp$SI) + (1.63 * aerocomp$CA) +
+  (2.42 * aerocomp$FE) + (1.94 * aerocomp$TI)
+
+#calculate OM:OC
+aerocomp$omoc <- (aerocomp$PM2.5 - aerocomp$ammSO4 - aerocomp$ammNO3 - aerocomp$EC - 
+                   aerocomp$soil - (1.8 * aerocomp$CHL))/aerocomp$OCtot
+
+#remove NAs --> lots of missing data in Cl
+aerocomp$omoc <- ifelse(aerocomp$omoc < 0, NA, aerocomp$omoc)
+
+#find medians for each season
+aero.omoc.ratios <- tapply(aerocomp$omoc, INDEX=list(aerocomp$AERONET_Site, aerocomp$Season), FUN="median", na.rm=T)
+aero.final.ratios <- data.frame(aero.omoc.ratios)
+library(dplyr)
+aero.final.ratios <- tibble::rownames_to_column(aero.final.ratios, "AERONET_Site")
+names(aero.final.ratios) <- c("AERONET_Site","win_ratio","spr_ratio","sum_ratio","fall_ratio")
+
+aeros <- sort(unique(aero.final.ratios$AERONET_Site))
+
+aerosite <- list()
+for(i in seq_along(aeros)){
+  aerosites <- data.frame(Season=c(1,2,3,4))
+  aerosites$AERONET_Site <- aeros[i]
+  aerosite[[i]] <- aerosites
+}
+aerosites <- do.call(rbind, aerosite)
+
+aeroratios <- gather(aero.final.ratios, fall_ratio:win_ratio, key="omoc", value="ratio", factor_key=T)
+
+aerosites <- merge(aerosites, aeroratios, by=c("AERONET_Site"))
+
+aerosites$Seasons <- ifelse(aerosites$omoc=="win_ratio", "Winter",
+                           ifelse(aerosites$omoc=="spr_ratio", "Spring",
+                                  ifelse(aerosites$omoc=="sum_ratio", "Summer",
+                                         ifelse(aerosites$omoc=="fall_ratio","Fall", NA))))
+aerosites$Seasons <- ifelse(aerosites$Season == 1 & aerosites$Seasons %in% c("Winter"), aerosites$Seasons,
+                           ifelse(aerosites$Season == 2 & aerosites$Seasons %in% c("Spring"), aerosites$Seasons,
+                                  ifelse(aerosites$Season == 3 & aerosites$Seasons %in% c("Summer"), aerosites$Seasons,
+                                         ifelse(aerosites$Season == 4 & aerosites$Seasons %in% c("Fall"), aerosites$Seasons, NA))))
+aerosites <- drop_na(aerosites, Seasons)
+
+aerosites$ratio <- ifelse(is.na(aerosites$ratio), 1.8, aerosites$ratio)
+
+aerocomp <- merge(aerocomp, aerosites, by=c("AERONET_Site","Season"))
+
+##now calculate the water! 
+aerocomp$OM <- (aerocomp$OCtot * aerocomp$ratio)
+aerocomp$OM_gcm3 <- aerocomp$OM*(1/10^6)*(1/10^6)
+aerocomp$Vo <- aerocomp$OM_gcm3/1.4
+aerocomp$aw_1aw <- (aerocomp$rh/(1-aerocomp$rh))
+aerocomp$Vwo <- (aerocomp$Vo)*(0.2)*(aerocomp$aw_1aw)
+aerocomp$Vwo_ugm3 <- (aerocomp$Vwo*(10^6)*(10^6))
+
+aerocomp$Vwo_k3 <- (aerocomp$Vo)*(0.3)*(aerocomp$aw_1aw) #using a korg value of 0.3 for rural location aerosol
+aerocomp$Vwo_ugm3_k3 <- (aerocomp$Vwo_k3*(10^6)*(10^6))
+
+aerocomp$Vwo_k05 <- (aerocomp$Vo)*(0.05)*(aerocomp$aw_1aw)
+aerocomp$Vwo_ugm3_k05 <- (aerocomp$Vwo_k05*(10^6)*(10^6))
+
+
+
+aerocomp$AmmIon <- ifelse(is.na(aerocomp$AmmIon), 0, aerocomp$AmmIon)
+
+write.csv(aerocomp,"D:/MMF/eta2/data/isorropia/comp_ammion_isoinputs.csv")
+
+aeroammiso <- read.table("C:/Users/madif/Desktop/ISO/eta2/allcomp_amm.dat", header=T)
+aeronoammiso <- read.table("C:/Users/madif/Desktop/ISO/eta2/allcomp_noamm.dat", header=T)
+
+aerocomp$ALW_amm <- aeroammiso$WATER
+aerocomp$ALW_noamm <- aeronoammiso$WATER
+
+aerocomp <- subset(aerocomp, Year >= 2002 & Year <= 2016)
+
+aerocomp <- subset(aerocomp, AERONET_Site!="Cart_Site" & AERONET_Site!="Egbert" & AERONET_Site!="SERC" & AERONET_Site!="Tucson")
+
+
+
+
+
+##
+## EPA HOURLY PM2.5 ####
+#load up monitoring site information dataset
+aqssites <- read.csv("C:/Users/madif/Downloads/aqs_sites.csv", header=T)
+aqssites <- aqssites[,c(1:7,10:11,18,20,23:25)]
+colnames(aqssites) <- c("State.Code","County.Code","Site.Number","Lat_EPA","Lon_EPA","Datum","Elevation_EPA","Site.Established.Date",
+                        "Site.Closed.Date","GMT.Offset","Local.Site.Name","State.Name","County.Name","City.Name")
+
+aqssites$Site.Established.Date <- as.Date(aqssites$Site.Established.Date, format="%Y-%m-%d")
+aqssites$Site.Closed.Date <- as.Date(aqssites$Site.Closed.Date, format="%Y-%m-%d")
+
+aqssites$Site.Opened.Year <- as.numeric(substring(aqssites$Site.Established.Date,1,4))
+aqssites$Site.Closed.Year <- as.numeric(substring(aqssites$Site.Closed.Date,1,4))
+aqssites$Site.Closed.Year[is.na(aqssites$Site.Closed.Year)] <- 2022
+aqssites$Years.Operated <- aqssites$Site.Closed.Year - aqssites$Site.Opened.Year
+
+aqssites$Lat_EPA <- ifelse(aqssites$Lat_EPA < 25, NA, 
+                            ifelse(aqssites$Lat_EPA > 50, NA, aqssites$Lat_EPA))
+aqssites$Lon_EPA <- ifelse(aqssites$Lon_EPA > -66, NA, 
+                             ifelse(aqssites$Lon_EPA < -124, NA, aqssites$Lon_EPA))
+aqssites <- drop_na(aqssites, Lat_EPA, Lon_EPA)
+
+#NA (remove) any sites that closed before 2000 (long time series that is more current is more helpful)
+aqssites$Site.Closed.Year <- ifelse(aqssites$Site.Closed.Year < 2015, NA, aqssites$Site.Closed.Year)
+aqssites$Site.Opened.Year <- ifelse(aqssites$Site.Opened.Year > 2012, NA, aqssites$Site.Opened.Year)
+aqssites <- drop_na(aqssites, Site.Closed.Year, Site.Opened.Year)
+
+#padding code columns to match daily data sets
+aqssites$State.Code <- str_pad(aqssites$State.Code, 2, pad="0")
+aqssites$County.Code <- str_pad(aqssites$County.Code, 3, pad="0")
+aqssites$Site.Number <- str_pad(aqssites$Site.Number, 4, pad="0")
+aqssites$AQSCode <- str_c(aqssites$State.Code, aqssites$County.Code, aqssites$Site.Number, sep="")
+
+aqssites$Years.Operated <- ifelse(aqssites$Years.Operated < 10, NA, aqssites$Years.Operated)
+aqssites <- drop_na(aqssites, Years.Operated)
+
+
+# gg <- g + geom_point(data=aerosites, aes(Longitude, Latitude), shape=24, fill="firebrick1", size=3)+
+#   geom_point(data=aqssites, aes(Lon_EPA, Lat_EPA), shape=21, fill="dodgerblue", size=2)+
+#   theme_classic(base_size=14)
+# gg
+
+
+
+#cut down to be near AERONET sites
+aerosites <- c("Ames","Billerica","BONDVILLE","Cart_Site","CARTEL","CCNY","Egbert","Fresno","Fresno_2","GSFC","MD_Science_Center",
+               "Missoula","Railroad_Valley","Red_Mountain_Pass","Rimrock","Saturn_Island","Sioux_Falls","Wallops")
+aerosites <- data.frame(AERONET_Site=aerosites)
+aerosites <- merge(aeronetsites, aerosites, by=c("AERONET_Site"))
+
+aerosites$MinLat <- aerosites$Latitude-0.5
+aerosites$MaxLat <- aerosites$Latitude+0.5
+aerosites$MinLon <- aerosites$Longitude-0.5
+aerosites$MaxLon <- aerosites$Longitude+0.5
+
+aqsnames <- aqssites$AQSCode
+
+aqss <- list()
+aqsaero <- list()
+for(i in aqsnames){
+  aqs <- subset(aqssites, AQSCode==i)
+  aqs1 <- data.frame(near=ifelse(aqs$Lat_EPA >= aerosites$MinLat & aqs$Lat_EPA <= aerosites$MaxLat & 
+                                   aqs$Lon_EPA >= aerosites$MinLon & aqs$Lon_EPA <= aerosites$MaxLon, 1, 2))
+  aqs1$AQSCode <- i
+  aqs1$AERONET_Site <- aerosites$AERONET_Site
+  aqss[[i]] <- aqs1
+}
+aqsaero <- do.call(rbind, aqss)
+aqsaero <- subset(aqsaero, near==1)
+rownames(aqsaero) <- NULL
+
+aqsaero <- merge(aqsaero, aqssites, by=c("AQSCode"))
+
+remove(aqs)
+remove(aqs1)
+remove(aqss)
+
+
+#now loop through hourly PM2.5 files!
+getwd()
+setwd("D:/MMF/eta2/data/epa/epa_hrlydata/")
+epafiles1 <- list.files("D:/MMF/eta2/data/epa/epa_hrlydata/", pattern="hourly_88101.*.")
+epafiles1
+
+epapm <- list()
+epapmhr <- list()
+for (i in 1:(length(epafiles1))){
+  epa <- read.csv(epafiles1[[i]], sep=",", header=T) 
+  epa$State.Code <- str_pad(epa$State.Code, 2, pad="0")
+  epa$County.Code <- str_pad(epa$County.Code, 3, pad="0")
+  epa$Site.Num <- str_pad(epa$Site.Num, 4, pad="0")
+  epa$AQSCode <- str_c(epa$State.Code, epa$County.Code, epa$Site.Num, sep="")
+  colnames(epa) <- c("State.Code","County.Code","Site.Number","Parameter.Code","POC","Lat_EPA","Lon_EPA",
+                     "Datum","Parameter.Name","Date.Local","Time.Local","Date.GMT","Time.GMT","Sample.Measurement",
+                     "Units.of.Measure","MDL","Uncertainty","Qualifier","Method.Type","Method.Code","Method.Name",
+                     "State.Name","County.Name","Date.of.Last.Change","AQSCode")
+  epa <- epa[,c(1:14,22:23,25)]
+  epamerge <- merge(aqsaero, epa, by=c("Lat_EPA","Lon_EPA","State.Code","County.Code","Site.Number","State.Name","County.Name",
+                                       "Datum","AQSCode"))
+  epapm[[i]] <- epamerge
+}
+epapmhr <- do.call(rbind, epapm)
+epapmhr88101 <- epapmhr
+
+#now for 88502
+setwd("D:/MMF/eta2/data/epa/epa_hrlydata/")
+epafiles2 <- list.files("D:/MMF/eta2/data/epa/epa_hrlydata/", pattern="hourly_88502.*.")
+epafiles2
+
+epapm2 <- list()
+epapmhr2 <- list()
+for (i in 1:(length(epafiles2))){ 
+  epa <- read.csv(epafiles2[[i]], sep=",", header=T) 
+  epa$State.Code <- str_pad(epa$State.Code, 2, pad="0")
+  epa$County.Code <- str_pad(epa$County.Code, 3, pad="0")
+  epa$Site.Num <- str_pad(epa$Site.Num, 4, pad="0")
+  epa$AQSCode <- str_c(epa$State.Code, epa$County.Code, epa$Site.Num, sep="")
+  colnames(epa) <- c("State.Code","County.Code","Site.Number","Parameter.Code","POC","Lat_EPA","Lon_EPA",
+                     "Datum","Parameter.Name","Date.Local","Time.Local","Date.GMT","Time.GMT","Sample.Measurement",
+                     "Units.of.Measure","MDL","Uncertainty","Qualifier","Method.Type","Method.Code","Method.Name",
+                     "State.Name","County.Name","Date.of.Last.Change","AQSCode")
+  epa <- epa[,c(1:14,22:23,25)]
+  epamerge <- merge(aqsaero, epa, by=c("Lat_EPA","Lon_EPA","State.Code","County.Code","Site.Number","State.Name","County.Name",
+                                       "Datum","AQSCode"))
+  epapm2[[i]] <- epamerge
+}
+epapmhr2 <- do.call(rbind, epapm2)
+epapmhr88502 <- epapmhr2
+
+#remove loop dataframes for memory help
+remove(epa)
+remove(epapm)
+remove(epapmhr)
+remove(epamerge)
+remove(epapm2)
+remove(epapmhr2)
+
+epapmhrly <- rbind(epapmhr88101, epapmhr88502)
+remove(epapmhr88101)
+remove(epapmhr88502)
+
+epapmhrly$Date <- as.Date(epapmhrly$Date.GMT, format="%Y-%m-%d")
+epapmhrly$Year <- as.numeric(substring(epapmhrly$Date,1,4))
+epapmhrly$Month <- as.numeric(substring(epapmhrly$Date,6,7))
+
+epapmhrly$Year <- ifelse(epapmhrly$Year < 2002 | epapmhrly$Year > 2016, NA, epapmhrly$Year)
+epapmhrly <- drop_na(epapmhrly, Year)
+
+epapmhrly <- epapmhrly[,c(1:7,9,11:12,15:16,24:31)]
+epapmhrly$Hour <- as.numeric(substring(epapmhrly$Time.GMT,1,2))
+
+
+## HOURLY ANALYSIS ####
+#merge aeronethr & epapmhrly together! 
+aeronethr <- merge(aeronethr, epapmhrly, by=c("AERONET_Site","Date","Hour","Year"))
+aeronethr <- drop_na(aeronethr, Sample.Measurement, AOD_440nm)
+
+aeronethr$Year2 <- ifelse(aeronethr$Month==12, aeronethr$Year+1, aeronethr$Year)
+yrqtr <- as.yearqtr(as.yearmon(aeronethr$Date, "%Y-%m-%d") + 1/12)
+aeronethr$Season <- as.numeric(factor(format(yrqtr, "%q"), levels=1:4, labels=c("1","2","3","4")))
+aeronethr$yrqtr <- as.yearqtr(as.yearmon(aeronethr$Date, "%Y-%m-%d") + 1/12)
+
+gsfchr <- subset(aeronethr, AERONET_Site=="GSFC")
+gsfchr$eta440dry <- gsfchr$Sample.Measurement / gsfchr$AOD_440nm
+
+gs <- ggplot(gsfchr, aes(Hour+GMT.Offset, eta440dry, group=Hour))+ylim(c(0,200))+ylab("Eta (ug/m3)")+
+  geom_boxplot(stat="boxplot", position="dodge2", outlier.color=NA, color="purple4", fill="purple", varwidth=T)+
+  scale_x_continuous("Time (Local)", breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  geom_vline(xintercept=10.5, linetype="longdash", color="black")+
+  geom_vline(xintercept=13.5, linetype="longdash", color="black")+
+  geom_text(aes(10.6, 200, label="TERRA"), color="black", hjust=0)+
+  geom_text(aes(13.6, 200, label="AQUA"), color="black", hjust=0)+
+  theme_classic(base_size=14)
+gs
+
+gs <- ggplot(gsfchr, aes(Day_of_Year, AOD_440nm, group=Day_of_Year))+ylim(c(0,1.5))+ylab("AOD (440 nm)")+
+  geom_boxplot(stat="boxplot", position="dodge2", outlier.color=NA, color="purple4", fill="purple", varwidth=F)+
+  scale_x_continuous("Day of Year", limits=c(0,367), breaks=c(0,30,60,90,120,150,180,210,240,270,300,330,360), 
+                     labels=c(0,30,60,90,120,150,180,210,240,270,300,330,360))+
+  geom_text(data=NULL, aes(60,1.5, label="GSFC"))+
+  theme_classic(base_size=14)
+gs
+
+
+for(i in 1:4){
+  szn <- subset(gsfchr, Season==i)
+  gs <- ggplot(szn, aes(Hour+GMT.Offset, eta440dry, group=Hour))+ylim(c(0,350))+ylab("Eta (ug/m3)")+
+    geom_boxplot(stat="boxplot", position="dodge2", outlier.color=NA, color="purple4", fill="purple", varwidth=T)+
+    geom_point(data=szn, aes(y=mean(eta440dry, na.rm=T), group=Hour), fill="orchid1", shape=21, size=2)+
+    scale_x_continuous("Time (Local)", limits=c(4.7,18.4), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+    geom_vline(xintercept=10.5, linetype="longdash", color="black")+
+    geom_vline(xintercept=13.5, linetype="longdash", color="black")+
+    geom_text(aes(10.6, 350, label="TERRA"), color="black", hjust=0)+
+    geom_text(aes(13.6, 350, label="AQUA"), color="black", hjust=0)+
+    geom_text(aes(5, 350, label=i))+
+    theme_classic(base_size=14)
+  mypath <- file.path("D:/MMF/eta2/plots", paste("gsfc_hrlyboxplots_",i,".png", sep="_"))
+  png(filename=mypath, width=6, height=4, units="in", res=300)
+  print(gs)
+  dev.off()
+}
+
+
+# hit rate on diurnal basis maybe?
+for(i in 1:4){
+  hour <- subset(gsfchr, Season==i)
+  a <- sum((hour$Sample.Measurement) >= 12.1, na.rm=T)
+  b <- sum(hour$AOD_440nm >= 0.25484, na.rm=T)
+  e <- sum((hour$Sample.Measurement) >= 12.1 & hour$AOD_440nm >= 0.25484, na.rm=T)
+  print(i)
+  print(a)
+  print(b)
+  print(e)
+}
+
+sum(gsfchr$Sample.Measurement >= 12.1, na.rm=T)
+sum(gsfchr$AOD_440nm >= 0.25484, na.rm=T)
+sum(gsfchr$Sample.Measurement >= 12.1 & gsfchr$AOD_440nm >= 0.25484, na.rm=T)
+
+
+## DAILY ANALYSIS - COMPOSITION + ALW ####
+aerocomp2 <- aggregate(aerocomp, by=list(aerocomp$AERONET_Site,aerocomp$Date,aerocomp$SiteCode), FUN="mean", na.rm=T)
+aerocomp2$AERONET_Site <- aerocomp2$Group.1
+aerocomp2$SiteCode <- aerocomp2$Group.3
+aerocomp2$Group.1 <- NULL
+aerocomp2$Group.2 <- NULL
+aerocomp2$Group.3 <- NULL
+
+aerocompsites <- unique(aerocomp$AERONET_Site)
+
+#check which ones actually work for this
+for(i in aerocompsites){
+  site1 <- subset(aerocomp, AERONET_Site==i)
+  site2 <- subset(aerocomp2, AERONET_Site==i)
+  g1 <- ggplot(site1, aes(Date, NO3))+ggtitle(i)+
+    geom_point(shape=1, color="blue", size=2)+
+    scale_x_date("Date", date_breaks="2 years", date_labels="%Y", limits=c(as.Date("2000-01-01"),as.Date("2016-12-31")))+
+    theme_classic(base_size=14)
+  g2 <- ggplot(site2, aes(Date, NO3))+ggtitle(i)+
+    geom_point(shape=1, color="blue", size=2)+
+    scale_x_date("Date", date_breaks="2 years", date_labels="%Y", limits=c(as.Date("2000-01-01"),as.Date("2016-12-31")))+
+    theme_classic(base_size=12)
+  g3 <- g1 + g2 + plot_layout(ncol=1, nrow=2, guides='collect')
+  mypath <- file.path("D:/MMF/eta2/plots/sites", paste(i,"pm25_timeseries.png", sep="_"))
+  png(filename=mypath, width=8, height=6, units="in", res=300)
+  print(g3)
+  dev.off()
+}
+
+#sites to drop - Cart_Site, Egbert, SERC, Tucson
+aerocomp2 <- subset(aerocomp2, AERONET_Site!="Cart_Site" & AERONET_Site!="Egbert" & AERONET_Site!="SERC" & AERONET_Site!="Tucson")
+aerocompsites <- sort(unique(aerocomp2$AERONET_Site))
+
+#checking data completeness from original datasets -- more than 75% is good - every one is good!
+for(i in aerocompsites){
+  site <- subset(aeronet, AERONET_Site==i)
+  a <- sum(site$Day_of_Year/site$Day_of_Year)
+  print(i)
+  print(a)
+}
+
+aerocomp2 <- subset(aerocomp2, Year >= 2002 & Year <= 2016)
+
+aerocomp2$region <- ifelse(aerocomp2$AERONET_Site=="Fresno", 3,
+                           ifelse(aerocomp2$AERONET_Site=="Red_Mountain_Pass", 3, 
+                                  ifelse(aerocomp2$AERONET_Site=="BONDVILLE", 2,
+                                         ifelse(aerocomp2$AERONET_Site=="Sioux_Falls", 2,
+                                                ifelse(aerocomp2$AERONET_Site=="Billerica", 1,
+                                                       ifelse(aerocomp2$AERONET_Site=="CCNY", 1,
+                                                              ifelse(aerocomp2$AERONET_Site=="GSFC", 1,
+                                                                     ifelse(aerocomp2$AERONET_Site=="MD_Science_Center", 1, NA))))))))
+aerocomp2$regime <- ifelse(aerocomp2$region==1, "Humid", 
+                           ifelse(aerocomp2$region==2, "Transitional",
+                                  ifelse(aerocomp2$region==3, "Arid", NA)))
+aerocomp2$regime <- as.factor(aerocomp2$regime)
+
+aerocomp2$etadry <- aerocomp2$PM2.5 / aerocomp2$AOD_440nm
+aerocomp2$etawet <- (aerocomp2$PM2.5 + aerocomp2$ALW_no3v) / aerocomp2$AOD_440nm
+
+
+
+## writing file out for Yintings nitrate model 
+ytcdata <- data.frame(AERONET_Site=aerocomp$AERONET_Site, Date=aerocomp$Date,
+                      IMPSiteCode=aerocomp$SiteCode, SiteName=aerocomp$SiteName, Lat=aerocomp$Lat, 
+                      Lon=aerocomp$Lon, PM2.5=aerocomp$PM2.5, NO3=aerocomp$NO3, SO4=aerocomp$SO4, Temp=aerocomp$sfc_temp, RH=aerocomp$rh)
+write.csv(ytcdata, "D:/MMF/eta2/data/yinting_eta_data.csv")
+
+ytcno3 <- read.csv("D:/MMF/eta2/data/comp/madi_eta_data.csv", header=T)
+ytcno3$X <- NULL
+
+aerocomp$NO3_v <- ytcno3$NO3_v
+aerocomp$NO3_tot <- aerocomp$NO3 + aerocomp$NO3_v
+
+write.csv(aerocomp, "D:/MMF/eta2/data/isorropia/aerocomp_no3loss_isoinputs.csv")
+no3loss <- read.table("C:/Users/madif/Desktop/ISO/eta2/compno3loss.dat", header=T)
+
+aerocomp$ALW_no3v <- no3loss$WATER
+
+ggplot(aerocomp, aes(ALW, ALW_no3v))+
+  geom_abline(slope=1, intercept=0, color="black", size=1)+
+  geom_point(aes(color=AERONET_Site, fill=AERONET_Site), size=2, shape=21, alpha=0.3)+
+  #geom_point(data=fres, aes(ALW, ALWstab, color=AERONET_Site, fill=AERONET_Site), size=2, shape=21, alpha=0.3)+
+  scale_color_manual("Site", values=brewer.pal(8, "Dark2"))+
+  scale_fill_manual("Site", values=brewer.pal(8, "Dark2"))+
+  theme_classic(base_size=14)
+
+fres <- subset(aerocomp, AERONET_Site=="Fresno")
+frestab <- read.table("C:/Users/madif/Desktop/ISO/fresno_stable.dat", header=T)
+frestab2 <- read.table("C:/Users/madif/Desktop/ISO/fresstab_nocorrects.dat", header=T)
+
+fres$ALWstab <- frestab$WATER
+fres$ALWstabnocorr <- frestab2$WATER
+
+
+
+
+## ETA regressions
+for(i in aerocompsites){
+  eta <- subset(aerocomp3, AERONET_Site==i)
+  a <- lm(formula=(PM2.5+ALW_no3v)/AOD_440nm~Date, data=eta, method="qr", na.action=na.omit)
+  b <- lm(formula=(PM2.5)/AOD_440nm~Date, data=eta, method="qr", na.action=na.omit)
+  aa <- summary(a)
+  bb <- summary(b)
+  print(i)
+  print(aa)
+  print(bb)
+}
+
+#time series plot
+for(i in aerocompsites){
+  site <- subset(aerocomp2, AERONET_Site==i)
+  a <- ggplot(site, aes(Date, (PM2.5+ALW)/AOD_440nm))+ggtitle(i)+
+    geom_point(shape=1, color="deepskyblue2", size=2)+
+    geom_smooth(stat="smooth", formula=y~x, method="lm", se=F, color="deepskyblue4", size=2)+
+    stat_regline_equation(formula=y~x, label.y.npc="top",label.x.npc="left", aes(label=..eq.label..))+
+    theme_classic(base_size=14)
+  mypath <- file.path("D:/MMF/eta2/plots/sites", paste(i,"weteta_timeseries.png", sep="_"))
+  png(filename=mypath, width=8, height=4, units="in", res=300)
+  print(a)
+  dev.off()
+}
+
+
+etalms <- read.table(text="Site	Site2	region	etawet_int	etawet_slope	etawet_pval	etadry_int	etadry_slope	etadry_pval	newwetint	newwetslope	newwetpval	wetsig	drysig
+Billerica	BILL	1	261.806534	-0.010796	3.38E-16	157.384228	-0.005303	2.70E-07	296.600785	-0.012872	2.20E-16	1	1
+Bondville	BOND	1	152.4	-0.004911	1.71E-07	82.6467031	-0.0016393	0.0267	152.3	-0.0049	1.86E-07	1	1
+CCNY	CCNY	1	187.280689	-0.006882	3.26E-07	94.0345934	-0.0020599	0.0304	199.836334	-0.007552	8.64E-09	1	1
+Fresno	FRES	2	120.5	0.0001023	0.955	69.586344	0.002384	0.1044	70.375399	0.003066	0.04971	1	2
+GSFC	GSFC	1	160.3	-0.004691	1.01E-06	68.07	-0.0001231	0.874	165.6	-0.00485	4.20E-07	1	2
+MDSC	MDSC	1	128.032289	-0.002717	0.00896	47.41	0.001322	0.102	133.626889	-0.00291	0.00453	1	2
+Red_Mtn_Pass	RMNP	2	-37.906641	0.006857	1.07E-08	-37.887994	0.006221	5.76E-09	-37.794459	0.006856	1.18E-08	1	1
+Sioux_Falls	SXFL	1	129.278587	-0.003684	0.0375	79.309449	-0.001501	0.299	129.179654	-0.003672	0.0385	1	2", header=T)
+
+
+
+states <- map_data("state")
+g<-ggplot(data=states,aes(x=long,y=lat))+geom_polygon(aes(group=group),fill="white",colour="black",linewidth=0.2)+coord_fixed(1.3)
+cc <- g + geom_point(data=aerocomp2, aes(Longitude, Latitude), shape=24, fill="firebrick1", size=3)+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        panel.background=element_blank(), legend.key=element_blank(), axis.title=element_blank(),
+        axis.text=element_blank(), axis.ticks=element_blank())
+cc
+
+
+## PM2.5 MASS WITH AND WITHOUT NITRATE LOSSES INCLUDED Figure 5####
+write.csv(aerocomp3, "D:/MMF/eta2/data/isorropia/aerocomp3_alwcheck.csv")
+alwcheck <- read.table("C:/Users/madif/Desktop/ISO/eta2/alwcheck.dat", header=T)
+aerocomp3$ALW <- alwcheck$WATER
+
+
+##
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  a <- quantile(site$PM2.5+site$ALW_no3v, na.rm=T, c(0.1,0.25,0.5,0.75,0.9))
+  b <- quantile(site$PM2.5, na.rm=T, c(0.1,0.25,0.5,0.75,0.9))
+  c <- quantile(site$ALW_no3v, na.rm=T, c(0.1,0.25,0.5,0.75,0.9))
+  d <- quantile(site$SO4, na.rm=T, c(0.1,0.25,0.5,0.75,0.9))
+  e <- quantile(site$NO3, na.rm=T, c(0.1,0.25,0.5,0.75,0.9))
+  print(i)
+  print(c("PM+ALW",a))
+  print(c("PM",b))
+  print(c("ALW",c))
+  print(c("SO4",d))
+  print(c("NO3",e))
+}
+
+expms <- list()
+expmss <- list()
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  hit <- subset(hitrates, Site==i)
+  expm <- subset(site, (site$PM2.5+site$ALW_no3v >= hit$pmwet75 & site$AOD_440nm >= hit$aod75))
+  expms[[i]] <- expm
+}
+expmss <- do.call(rbind,expms)
+
+for(i in aerocompsites){
+  site <- subset(expmss, AERONET_Site==i)
+  a <- summary(site$SO4, na.rm=T)
+  b <- summary(site$NAf+site$CHL+site$CA+site$K+site$MG, na.rm=T)
+  c <- summary(site$OM, na.rm=T)
+  f <- summary(site$ALW_no3v, na.rm=T)
+  g <- summary(site$NO3_tot, na.rm=T)
+  print(i)
+  print(c("SO4",a))
+  print(c("Dust",b))
+  print(c("OM",c))
+  print(c("ALW_no3",f))
+  print(c("NO3_tot",g))
+}
+
+lwpms <- list()
+lwpmss <- list()
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  hit <- subset(hitrates, Site==i)
+  lwpm <- subset(site, (site$PM2.5+site$ALW_no3v <= hit$pmwet75 & site$AOD_440nm <= hit$aod75))
+  lwpms[[i]] <- lwpm
+}
+lwpmss <- do.call(rbind,lwpms)
+
+for(i in aerocompsites){
+  site <- subset(lwpmss, AERONET_Site==i)
+  a <- summary(site$SO4, na.rm=T)
+  b <- summary(site$NAf+site$CHL+site$CA+site$K+site$MG, na.rm=T)
+  c <- summary(site$OM, na.rm=T)
+  f <- summary(site$ALW_no3v, na.rm=T)
+  g <- summary(site$NO3_tot, na.rm=T)
+  print(i)
+  print(c("SO4",a))
+  print(c("Dust",b))
+  print(c("OM",c))
+  print(c("ALW_no3",f))
+  print(c("NO3_tot",g))
+}
+
+
+# comptests2 <- read.table(text="site_matching spreadsheet, timecomps tab", header=T)
+# complabs <- c('Arid Obs.','Arid Obs. + NO3 losses','Humid Obs.','Humid Obs. + NO3 losses')
+comp1 <- ggplot(comptests1, aes(x=site2, y=value, fill=species, group=site))+
+  geom_bar(data=subset(comptests1, NO3type=="obs"), aes(x=site2-0.2, color=species), stat="identity", position="stack", width=0.32)+
+  geom_bar(data=subset(comptests1, NO3type=="loss"), aes(x=site2+0.2, color=species), stat="identity", position="stack", width=0.32)+
+  scale_fill_manual("", values=c("skyblue1","saddlebrown","blue","forestgreen","red"), labels=c("ALW","Dust, NaCl","Nitrate","OM","Sulfate"))+
+  scale_color_manual("", values=c("transparent","black","transparent","transparent","black"), labels=c("ALW","Dust, NaCl","Nitrate","OM","Sulfate"))+
+  scale_x_continuous("Site", breaks=c(1,2,3,4,5,6,7,8), labels=c("BILL","CCNY","GSFC","MDSC","BOND","SXFL","RMNP","FRES"))+
+  scale_y_continuous(expression("Mass"~(mu*g~m^{-3})))+
+  facet_grid(~regime, scales='free', space='free')+
+  theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), axis.line=element_line(), 
+        axis.text=element_text(size=14, color="black"), axis.title.y=element_text(size=16, color="black"), axis.title.x=element_blank(), 
+        strip.text=element_text(color="black", size=14), axis.ticks=element_line(), strip.background=element_rect(fill="transparent", color="black"),
+        legend.key=element_blank(), legend.text=element_text(color="black", size=12), legend.position="top")+guides(color="none")
+comp1
+mypath <- file.path("D:/MMF/eta2/plots/", paste("sitecompbars_means.png"))
+png(filename=mypath, width=8, height=6, units="in", res=300)
+print(comp1)
+dev.off()
+
+comp2 <- ggplot(comptests2, aes(x=site2, y=value, fill=species, group=site))+
+  geom_bar(data=subset(comptests2, NO3type=="obs"), aes(x=site2-0.2, color=species), stat="identity", position="stack", width=0.32)+
+  geom_bar(data=subset(comptests2, NO3type=="loss"), aes(x=site2+0.2, color=species), stat="identity", position="stack", width=0.32)+
+  scale_fill_manual("", values=c("skyblue1","saddlebrown","blue","forestgreen","red"), labels=c("ALW","Dust, NaCl","Nitrate","OM","Sulfate"))+
+  scale_color_manual("", values=c("transparent","black","transparent","transparent","black"), labels=c("ALW","Dust, NaCl","Nitrate","OM","Sulfate"))+
+  scale_x_continuous("Site", breaks=c(1,2,3,4,5,6,7,8), labels=c("BILL","CCNY","GSFC","MDSC","BOND","SXFL","RMNP","FRES"))+
+  scale_y_continuous(expression("Mass"~(mu*g~m^{-3})))+
+  facet_grid(~rh, scales='free', space='free')+
+  theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), axis.line=element_line(), 
+        axis.text=element_text(size=14, color="black"), axis.title.y=element_text(size=16, color="black"), axis.title.x=element_blank(), 
+        strip.text=element_text(color="black", size=14), axis.ticks=element_line(), strip.background=element_rect(fill="transparent", color="black"),
+        legend.key=element_blank(), legend.text=element_text(color="black", size=12), legend.position="top")+guides(color="none")
+comp2
+mypath <- file.path("D:/MMF/eta2/plots/", paste("sitecompbars_medians.png"))
+png(filename=mypath, width=8, height=6, units="in", res=300)
+print(comp2)
+dev.off()
+
+#comptests2 <- subset(comptests2, species!="om")
+
+comp2 <- ggplot(comptests2, aes(x=site2, y=value, fill=species, group=site))+
+  geom_bar(data=subset(comptests2, NO3type=="avg"), aes(x=site2-0.2, color=species), stat="identity", position="fill", width=0.3)+
+  geom_bar(data=subset(comptests2, NO3type=="peak"), aes(x=site2+0.2, color=species), stat="identity", position="fill", width=0.3)+
+  geom_text(data=subset(comptests2, NO3type=="avg"), aes(site2-0.2, -0.03, label="avg"), color="black")+
+  geom_text(data=subset(comptests2, NO3type=="peak"), aes(site2+0.2, -0.03, label="peak"), color="black")+
+  scale_fill_manual("", values=c("skyblue1","saddlebrown","blue","red"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+  scale_color_manual("", values=c("transparent","black","transparent","black"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+  scale_x_continuous("Site", breaks=c(1,2,3,4,5,6,7,8), labels=c("BILL","CCNY","GSFC","MDSC","BOND","SXFL","RMNP","FRES"))+
+  scale_y_continuous(expression("Mass Fraction (%)"), breaks=c(0,0.25,0.5,0.75,1), labels=c("0","25","50","75","100"))+
+  facet_grid(~rh, scales='free', space='free')+
+  theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), axis.line=element_line(), 
+        axis.text=element_text(size=14, color="black"), axis.title.y=element_text(size=16, color="black"), axis.title.x=element_blank(), 
+        strip.text=element_blank(), axis.ticks.y=element_line(), strip.background=element_blank(),
+        legend.key=element_blank(), legend.text=element_text(color="black", size=12), legend.position="none", 
+        axis.ticks.x=element_blank())+guides(color="none")
+comp2
+comp3 <- ggplot(comptests2, aes(x=site2, y=value, fill=species, group=site))+
+  geom_bar(data=subset(comptests2, NO3type=="avg"), aes(x=site2-0.23, color=species), stat="identity", position="stack", width=0.38)+
+  geom_bar(data=subset(comptests2, NO3type=="peak"), aes(x=site2+0.23, color=species), stat="identity", position="stack", width=0.38)+
+  geom_text(data=subset(comptests2, NO3type=="avg"), aes(site2-0.23, total+1, label=round(total, digits=1)), color="black", size=5)+
+  geom_text(data=subset(comptests2, NO3type=="peak"), aes(site2+0.23, total+1, label=round(total, digits=1)), color="black", size=5)+
+  geom_text(data=subset(comptests2, NO3type=="avg" & site2==7), aes(site2-0.23, 3.8, label="avg"), fontface="italic", color="black", size=5)+
+  geom_text(data=subset(comptests2, NO3type=="peak" & site2==7), aes(site2+0.23, 5, label="peak"), fontface="italic", color="black", size=5)+
+  scale_fill_manual("", values=c("skyblue1","saddlebrown","blue","red"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+  scale_color_manual("", values=c("transparent","black","transparent","black"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+  scale_x_continuous("Site", breaks=c(1,2,3,4,5,6,7,8), labels=c("BILL","CCNY","GSFC","MDSC","BOND","SXFL","RMNP","FRES"))+
+  scale_y_continuous(expression("Mass"~(mu*g~m^{-3})), limits=c(0,24.8), breaks=c(0,5,10,15,20,25), labels=c(0,5,10,15,20,25))+
+  facet_grid(~rh, scales='free', space='free')+
+  theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), axis.line=element_line(), 
+        axis.text=element_text(size=14, color="black"), axis.title.y=element_text(size=16, color="black"), axis.title.x=element_blank(), 
+        strip.text=element_text(color="black", size=14), axis.ticks.y=element_line(), strip.background=element_rect(fill="transparent", color="black"),
+        legend.key=element_blank(), legend.text=element_text(color="black", size=13), legend.position="top", 
+        axis.ticks.x=element_blank())+guides(color="none")
+comp3
+# comps <- comp3 + comp2 + plot_layout(ncol=1, nrow=2)+guides(fill=guide_legend(nrow=1))#+theme(legend.position="top")
+# mypath <- file.path("D:/MMF/eta2/plots/", paste("sitecompbars_peakvsavg_medians.png"))
+# png(filename=mypath, width=9, height=8, units="in", res=300)
+# print(comps)
+# dev.off()
+
+mypath <- file.path("D:/MMF/eta2/plots/", paste("sitecompbars_mediansnew.png"))
+png(filename=mypath, width=8, height=6, units="in", res=300)
+print(comp3)
+dev.off()
+
+
+
+#seasonal check
+for(i in aerocompsites){
+  site <- subset(expmss, AERONET_Site==i)
+  for(j in 1:4){
+    szn <- subset(site, Season==j)
+    a <- summary(szn$SO4, na.rm=T)
+    b <- summary(szn$NAf+szn$CHL+szn$CA+szn$K+szn$MG, na.rm=T)
+    # c <- summary(szn$OM, na.rm=T)
+    f <- summary(szn$ALW_no3v, na.rm=T)
+    g <- summary(szn$NO3_tot, na.rm=T)
+    print(c(i,j))
+    print(c("SO4",a))
+    print(c("Dust",b))
+    # print(c("OM",c))
+    print(c("ALW_no3",f))
+    print(c("NO3_tot",g))
+  }
+}
+
+for(i in aerocompsites){
+  site <- subset(lwpmss, AERONET_Site==i)
+  for(j in 1:4){
+    szn <- subset(site, Season==j)
+    a <- summary(szn$SO4, na.rm=T)
+    b <- summary(szn$NAf+szn$CHL+szn$CA+szn$K+szn$MG, na.rm=T)
+    # c <- summary(szn$OM, na.rm=T)
+    f <- summary(szn$ALW_no3v, na.rm=T)
+    g <- summary(szn$NO3_tot, na.rm=T)
+    print(c(i,j))
+    print(c("SO4",a))
+    print(c("Dust",b))
+    # print(c("OM",c))
+    print(c("ALW_no3",f))
+    print(c("NO3_tot",g))
+  }
+}
+
+
+for(i in 1:4){
+  szn <- subset(compsszn, season==i)
+  comp2 <- ggplot(szn, aes(x=site2, y=value, fill=species, group=site))+ggtitle(i)+
+    geom_bar(data=subset(szn, NO3type=="avg"), aes(x=site2-0.2, color=species), stat="identity", position="fill", width=0.3)+
+    geom_bar(data=subset(szn, NO3type=="peak"), aes(x=site2+0.2, color=species), stat="identity", position="fill", width=0.3)+
+    geom_text(data=subset(szn, NO3type=="avg"), aes(site2-0.2, -0.03, label="avg"), color="black")+
+    geom_text(data=subset(szn, NO3type=="peak"), aes(site2+0.2, -0.03, label="peak"), color="black")+
+    scale_fill_manual("", values=c("skyblue1","saddlebrown","blue","red"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+    scale_color_manual("", values=c("transparent","black","transparent","black"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+    scale_x_continuous("Site", breaks=c(1,2,3,4,5,6,7,8), labels=c("BILL","CCNY","GSFC","MDSC","BOND","SXFL","RMNP","FRES"))+
+    scale_y_continuous(expression("Mass Fraction (%)"), breaks=c(0,0.25,0.5,0.75,1), labels=c("0","25","50","75","100"))+
+    facet_grid(~rh, scales='free', space='free')+
+    theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), axis.line=element_line(), 
+          axis.text=element_text(size=14, color="black"), axis.title.y=element_text(size=16, color="black"), axis.title.x=element_blank(), 
+          strip.text=element_blank(), axis.ticks.y=element_line(), strip.background=element_blank(),
+          legend.key=element_blank(), legend.text=element_text(color="black", size=12), legend.position="none", 
+          axis.ticks.x=element_blank())+guides(color="none")
+  comp3 <- ggplot(szn, aes(x=site2, y=value, fill=species, group=site))+ggtitle(i)+
+    geom_bar(data=subset(szn, NO3type=="avg"), aes(x=site2-0.23, color=species), stat="identity", position="stack", width=0.38)+
+    geom_bar(data=subset(szn, NO3type=="peak"), aes(x=site2+0.23, color=species), stat="identity", position="stack", width=0.38)+
+    geom_text(data=subset(szn, NO3type=="avg"), aes(site2-0.23, total+1, label=round(total, digits=1)), color="black", size=5)+
+    geom_text(data=subset(szn, NO3type=="peak"), aes(site2+0.23, total+1, label=round(total, digits=1)), color="black", size=5)+
+    geom_text(data=subset(szn, NO3type=="avg" & site2==7), aes(site2-0.23, 3.8, label="avg"), fontface="italic", color="black", size=5)+
+    geom_text(data=subset(szn, NO3type=="peak" & site2==7), aes(site2+0.23, 5, label="peak"), fontface="italic", color="black", size=5)+
+    scale_fill_manual("", values=c("skyblue1","saddlebrown","blue","red"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+    scale_color_manual("", values=c("transparent","black","transparent","black"), labels=c("ALW","Dust, NaCl","Nitrate","Sulfate"))+
+    scale_x_continuous("Site", breaks=c(1,2,3,4,5,6,7,8), labels=c("BILL","CCNY","GSFC","MDSC","BOND","SXFL","RMNP","FRES"))+
+    scale_y_continuous(expression("Mass"~(mu*g~m^{-3})), limits=c(0,26.5), breaks=c(0,5,10,15,20,25), labels=c(0,5,10,15,20,25))+
+    facet_grid(~rh, scales='free', space='free')+
+    theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), axis.line=element_line(), 
+          axis.text=element_text(size=14, color="black"), axis.title.y=element_text(size=16, color="black"), axis.title.x=element_blank(), 
+          strip.text=element_text(color="black", size=14), axis.ticks.y=element_line(), strip.background=element_rect(fill="transparent", color="black"),
+          legend.key=element_blank(), legend.text=element_text(color="black", size=13), legend.position="top", 
+          axis.ticks.x=element_blank())+guides(color="none")
+  print(i)
+  print(comp2)
+  print(comp3)
+}
+
+
+for(i in 1:2){
+  site <- subset(aerocomp3, region2==i)
+  for(j in 1:4){
+    szn <- subset(site, Season==j)
+    a <- summary(szn$pbl, na.rm=T)
+    b <- summary(szn$PM2.5+szn$NO3_tot, na.rm=T)
+    c <- summary(szn$ALW_no3v, na.rm=T)
+    d <- summary(szn$AOD_440nm, na.rm=T)
+    print(c(i,j))
+    print(c("PBL",a))
+    print(c("PM2.5+NO3",b))
+    print(c("ALW",c))
+    print(c("AOD",d))
+  }
+}
+
+
+
+
+for(i in 1:2){
+  site <- subset(aerocomp3, region2==i)
+  a <- summary(site$RH, na.rm=T)
+  print(c(i,a))
+}
+
+
+for(i in 1:2){
+  site1 <- subset(comp0206, region2==i)
+  site2 <- subset(comp1216, region2==i)
+  a <- summary(site1$NO3_tot)
+  b <- summary(site2$NO3_tot)
+  print(c(i,a))
+}
+for(i in aerocompsites){
+  site1 <- subset(comp0206, AERONET_Site==i)
+  site2 <- subset(comp1216, AERONET_Site==i)
+  a <- summary(site1$NO3_tot)
+  b <- summary(site2$NO3_tot)
+  print(c(i,a,b))
+}
+
+
+for(i in aerocompsites){
+  site1 <- subset(comp0206, AERONET_Site==i)
+  site2 <- subset(comp1216, AERONET_Site==i)
+  mn1 <- mean(site1$etawet, na.rm=T)
+  mn2 <- mean(site1$etadry, na.rm=T)
+  md1 <- median(site1$etawet, na.rm=T)
+  md2 <- median(site1$etadry, na.rm=T)
+  mn3 <- mean(site2$etawet, na.rm=T)
+  mn4 <- mean(site2$etadry, na.rm=T)
+  md3 <- median(site2$etawet, na.rm=T)
+  md4 <- median(site2$etadry, na.rm=T)
+  print(i)
+  print("02-06")
+  print(mn1)
+  print(mn2)
+  print(md1)
+  print(md2)
+  print("12-16")
+  print(mn3)
+  print(mn4)
+  print(md3)
+  print(md4)
+}
+
+
+t.test(x=comp1216$etawet, y=comp1216$etadry, alternative="two.sided", mu=0, conf.level=0.95)
+
+for(i in aerocompsites){
+  site1 <- subset(comp0206, AERONET_Site==i)
+  site2 <- subset(comp1216, AERONET_Site==i)
+  t1 <- t.test(x=site1$etawet, y=site2$etawet, alternative="two.sided", mu=0, conf.level=0.95)
+  t2 <- t.test(x=site1$etadry, y=site2$etadry, alternative="two.sided", mu=0, conf.level=0.95)
+  print(i)
+  print(t1)
+  print(t2)
+}
+
+
+
+
+for(j in 1:4){
+  szn <- subset(aerocomp2, Season==j)
+  s <- ggplot(szn, aes(x=factor(Year2), y=etawet, fill=factor(Year2)))+
+    xlab("Site & Year")+ylab("Eta 440 (ug/m3)")+ylim(c(0,900))+
+    geom_boxplot(aes(fill=factor(Year2)), position="dodge2", stat="boxplot", outlier.color="gray", varwidth=T, alpha=0.3)+
+    geom_boxplot(aes(y=etadry, fill=factor(Year2)), alpha=0.9, position="dodge2", stat="boxplot", outlier.color="gray", varwidth=T)+
+    stat_summary(geom="boxplot", fun.data=function(x) setNames(quantile(x, c(0.1, 0.25, 0.5, 0.75, 0.9)), 
+                                                               c("ymin", "lower", "middle", "upper", "ymax")), position="dodge2")+
+    facet_grid(~AERONET_Site, scales='free', space='free', switch='x')+
+    scale_fill_viridis("Year", alpha=1, begin=0, end=1, direction=1, discrete=T, option="H")+
+    theme_classic(base_size=14)
+  mypath <- file.path("D:/MMF/eta2/plots/sites/", paste("etawet_yrsznboxplots_",j,".png"))
+  png(filename=mypath, width=10, height=4, units="in", res=300)
+  print(s)
+  dev.off()
+}
+
+
+
+## hit rate ####
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  a <- summary(site$PM2.5+site$NO3_v)
+  b <- summary(site$AOD_440nm)
+  c <- summary(site$PM2.5+site$NO3_v+site$ALW_no3v)
+  print(i)
+  print(c)
+  print(a)
+  print(b)
+}
+
+hitrates <- read.table(text="Site	Site2	Site3	region	pmwet75	pmdry75	aod75	hitratewet	hitratedry	wetslope	dryslope	wetsig	drysig
+Billerica	BILL	1	1	15.644	11.364	0.201	0.538	0.545	-0.0571	-0.0429	1	1
+BONDVILLE	BOND	5	1	19.026	13.025	0.271	0.659	0.612	-0.0464	-0.0378	1	1
+CCNY	CCNY	2	1	21.697	15.278	0.325	0.609	0.599	-0.0576	-0.0457	1	1
+Fresno	FRES	8	2	24.833	22.892	0.215	0.550	0.523	0.0029	-0.0033	2	2
+GSFC	GSFC	3	1	22.45	15.540	0.317	0.698	0.658	-0.0443	-0.0299	1	1
+MD_Science_Center	MDSC	4	1	22.815	15.536	0.336	0.668	0.631	-0.0532	-0.0369	1	1
+Red_Mountain_Pass	RMNP	7	2	4.095	3.507	0.073	0.686	0.642	-0.0090	-0.0060	2	2
+Sioux_Falls	SXFL	6	1	12.298	9.097	0.206	0.536	0.529	-0.0444	-0.0200	1	2", header=T)
+
+
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  hit <- subset(hitrates, Site==i)
+  a <- sum(site$PM2.5+site$NO3_v >= hit$pmdry75, na.rm=T)
+  b <- sum(site$AOD_440nm >= hit$aod75, na.rm=T)
+  c <- sum(site$PM2.5+site$NO3_v >= hit$pmdry & site$AOD_440nm >= hit$aod75, na.rm=T)
+  d <- sum((site$PM2.5+site$NO3_v+site$ALW_no3v) >= hit$pmwet75, na.rm=T)
+  e <- sum((site$PM2.5+site$NO3_v+site$ALW_no3v) >= hit$pmwet75 & site$AOD_440nm >= hit$aod75, na.rm=T)
+  print(i)
+  print(c("dry",a,b,c))
+  print(c("wet",d,b,e))
+}
+
+#now do year by year
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  hit <- subset(hitrates, Site==i)
+  for(j in 2002:2016){
+    site2 <- subset(site, Year==j)
+    a <- sum(site2$PM2.5+site2$NO3_v >= hit$pmdry75, na.rm=T)
+    b <- sum(site2$AOD_440nm >= hit$aod75, na.rm=T)
+    c <- sum(site2$PM2.5+site2$NO3_v >= hit$pmdry & site2$AOD_440nm >= hit$aod75, na.rm=T)
+    d <- sum((site2$PM2.5+site2$NO3_v+site2$ALW_no3v) >= hit$pmwet75, na.rm=T)
+    e <- sum((site2$PM2.5+site2$NO3_v+site2$ALW_no3v) >= hit$pmwet75 & site2$AOD_440nm >= hit$aod75, na.rm=T)
+    print(c(i,j))
+    print(c("wet",d,b,e))
+    print(c("dry",a,b,c))
+  }
+}
+
+
+#hityrs <- read.table(text="hitrates tab on eta_new spreadsheet", header=T)
+for(i in aerocompsites){
+  corr <- subset(hityrs, Site==i)
+  a <- lm(hitratewet~Year, data=corr, method="qr", na.action=na.omit)
+  b <- lm(hitratedry~Year, data=corr, method="qr", na.action=na.omit)
+  c <- summary(a)
+  d <- summary(b)
+  print(i)
+  print(c)
+  print(d)
+}
+
+hitrates <- hitrates[,c(1:9,12:13,10:11)]
+hitrateslong <- pivot_longer(hitrates, wetslope:dryslope, names_to="var", values_to="val")
+hitrateslong$region2 <- as.factor(ifelse(hitrateslong$region==1, "Humid", 
+                                        ifelse(hitrateslong$region==2, "Arid", NA)))
+hitrateslong <- hitrateslong[order(hitrateslong$Site3),]
+labs <- unique(hitrateslong$Site2)
+
+#plotting hit rate annual change
+hryr <- ggplot(hitrateslong, aes(Site3, var))+xlab("")+
+  scale_y_discrete("", labels=c("Dry","Wet"))+scale_x_continuous("", breaks=c(1,2,3,4,5,6,7,8), labels=labs)+
+  geom_tile(aes(fill=val*100, group=var), width=0.95, height=0.95)+
+  geom_polygon(aes(fill=val*100, group=var), stat="identity", position="identity")+
+  geom_point(data=subset(hitrateslong, var=="wetslope"), aes(color=factor(wetsig), group=var), size=5, shape=17, show.legend=F)+
+  geom_point(data=subset(hitrateslong, var=="dryslope"), aes(color=factor(drysig), group=var), size=5, shape=17, show.legend=F)+
+  scale_fill_gradient2(expression(Delta*theta~("%"~yr^{-1})), limits=c(-6,6), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', oob=squish)+
+  scale_color_manual("", values=c("black","transparent"), labels=c("",""))+
+  facet_grid(~region2, scales='free', space='free')+ theme_classic(base_size=13)+
+  guides(size="none", fill=guide_colourbar(title.position="left"))+
+  theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), 
+        axis.text=element_text(color="black"), axis.title=element_blank(), strip.text=element_text(color="black"), legend.title.align=0.5,
+        axis.line.x=element_line(color="black"), axis.ticks=element_blank(), axis.line.y=element_blank(), legend.title=element_text(angle=90),
+        legend.key=element_blank(), legend.text=element_text(color="black"), legend.position="right", axis.text.y=element_text(angle=90), 
+        legend.direction="vertical")
+mypath <- file.path("D:/MMF/eta2/plots/", paste("hitrate_annualchange_tile_new.png"))
+png(filename=mypath, width=6, height=2.5, units="in", res=300)
+print(hryr)
+dev.off()
+
+
+
+ggplot(hityrs, aes(Year, hitratepmdry))+ylim(c(0,1))+
+  geom_point(aes(shape=Site, color=Site), size=3)+
+  geom_smooth(stat="smooth", method="lm", aes(color=Site), linewidth=1, se=F)+
+  scale_shape_manual("Site", values=c(1,2,3,4,5,6,7,8))+
+  scale_color_manual("Site", values=brewer.pal(8, "Set2"))+
+  theme_classic(base_size=14)
+
+
+
+## f(RH) CALCULATIONS ####
+aerocomp3$OCtot <- ifelse(is.na(aerocomp3$OCtot), 0, aerocomp3$OCtot)
+aerocomp3$OM <- ifelse(is.na(aerocomp3$OM), 0, aerocomp3$OM)
+aerocomp3$PM_spec <- aerocomp3$NO3_tot + aerocomp3$SO4 + aerocomp3$OM + aerocomp3$NAf + aerocomp3$CHL + 
+                        aerocomp3$CA + aerocomp3$K + aerocomp3$MG
+
+# keep everything in ug/m3 or g/cm3
+# conversion: 1 g/cm3 = 1*10^12 ug/m3
+aerocomp3$dry_rho <- ((1.725)*aerocomp3$NO3_tot + (1.10)*aerocomp3$SO4 + (1.4)*aerocomp3$OM + (2.17)*(aerocomp3$NAf+aerocomp3$CHL) +
+                        (1.55)*aerocomp3$CA + (0.862)*aerocomp3$K + (1.738)*aerocomp3$MG)/(aerocomp3$PM_spec)
+
+#now do the r1/r2 equation (piecemeal for sanity)
+aerocomp3$r1 <- (aerocomp3$ALW_no3v/(1.0))^(1/3) + (aerocomp3$PM2.5/aerocomp3$dry_rho)^(1/3)
+aerocomp3$r2 <- (aerocomp3$PM2.5/aerocomp3$dry_rho)^(1/3)
+aerocomp3$r1_r2 <- aerocomp3$r1 / aerocomp3$r2
+
+aerocomp3 <- drop_na(aerocomp3, PM2.5, AOD_440nm)
+aerocomp3$etawet <- (aerocomp3$PM2.5 + aerocomp3$ALW_no3v + aerocomp3$NO3_v) / aerocomp3$AOD_440nm
+aerocomp3$etadry <- (aerocomp3$PM2.5 + aerocomp3$NO3_v) / aerocomp3$AOD_440nm
+
+aerocomp3$region2 <- ifelse(aerocomp3$regime=="Humid", 1,
+                            ifelse(aerocomp3$regime=="Transitional", 1,
+                                   ifelse(aerocomp3$regime=="Arid", 2, NA)))
+
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  a <- max(site$pbl, na.rm=T)
+  print(i)
+  print(a)
+}
+#pbls <- read.table(text="pblmax in site_matching spreadsheet sitematch tab", header=T)
+aerocomp3 <- merge(aerocomp3, pbls, by="AERONET_Site")
+aerocomp3$pblnorm_site <- aerocomp3$pbl / aerocomp3$pblmax
+
+#try adding additional nitrate to PM2.5 total mass as shading? 
+
+a <- ggplot(aerocomp3, aes(Date, r1_r2, group=factor(region2)))+geom_text(aes(as.Date("2016-06-01"), 2, label="(f)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(region2)), stat="smooth", method="loess", se=F, span=0.05, size=1.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+ylab(expression(f("RH")))
+b <- ggplot(aerocomp3, aes(Date, etawet, group=factor(region2)))+geom_text(aes(as.Date("2016-06-01"), 250, label="(d)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(region2)), stat="smooth", method="loess", se=F, span=0.05, size=1.5, na.rm=T)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+ylab(expression(eta["H"[2]*"O"]~(mu*g~m^{-3})))
+d <- ggplot(aerocomp3, aes(Date, ALW_no3v, group=factor(region2)))+geom_text(aes(as.Date("2016-06-01"), 15, label="(e)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(region2)), stat="smooth", method="loess", se=F, span=0.05, size=1.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+ylab(expression("ALW"~(mu*g~m^{-3})))
+e <- ggplot(aerocomp3, aes(Date, AOD_440nm, group=factor(region2)))+geom_text(aes(as.Date("2016-06-01"), 0.6, label="(c)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(region2)), stat="smooth", method="loess", se=F, span=0.05, size=1.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+ylab(expression("AOD"~(440~"nm")))
+f <- ggplot(aerocomp3, aes(Date, PM2.5+NO3_v, group=factor(region2)))+geom_text(aes(as.Date("2016-06-01"), 40, label="(b)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(region2)), stat="smooth", method="loess", se=F, span=0.05, size=1.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+ylab(expression("PM"[2.5]~(mu*g~m^{-3})))
+g <- ggplot(aerocomp3, aes(Date, etadry, group=factor(region2)))+geom_text(aes(as.Date("2016-06-01"), 250, label="(a)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(region2)), stat="smooth", method="loess", se=F, span=0.05, size=1.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+ylab(expression(eta~(mu*g~m^{-3})))
+
+ls <- g + f + e + b + d + a + plot_layout(ncol=3, nrow=2, guides='collect') & theme(legend.position="top", legend.text=element_text(size=16),
+                                                                                    axis.text=element_text(color="black"), axis.title.x=element_blank())
+mypath <- file.path("D:/MMF/eta2/plots/", paste("loess_regimes3.png"))
+png(filename=mypath, width=11, height=5, units="in", res=300)
+print(ls)
+dev.off()
+
+
+c <- ggplot(aerocomp3, aes(Date, pbl, group=factor(AERONET_Site)))+#geom_text(aes(as.Date("2016-06-01"), 220, label="(a)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(AERONET_Site)), stat="smooth", method="loess", se=F, span=0.05, size=1.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+ylab(expression("PBL Height"~(m)))+theme(legend.position="top")
+mypath <- file.path("D:/MMF/eta2/plots/", paste("loess_pbl2.png"))
+png(filename=mypath, width=5.8, height=3.2, units="in", res=300)
+print(c)
+dev.off()
+
+ggplot(aerocomp3, aes(Date, SO4, group=factor(region2)))+#geom_text(aes(as.Date("2016-06-01"), 220, label="(a)"), size=5)+
+  geom_smooth(aes(color=factor(region2), group=factor(region2)), stat="smooth", method="loess", se=F, span=0.05, size=1.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"), as.Date("2016-12-31")), date_breaks="3 years", date_labels="%Y")+
+  theme_classic(base_size=15)+theme(legend.position="top")#+ylab(expression("PBL Height"~(m)))
+
+
+
+## calculating eta a new way ####
+#eta = (PM2.5/AOD*pbl height)*(4/3)
+aerocomp3$newetawet <- (4/3)*((aerocomp3$PM2.5+aerocomp3$ALW)/(aerocomp3$AOD_440nm*aerocomp3$pbl))
+aerocomp3$newetadry <- (4/3)*((aerocomp3$PM2.5)/(aerocomp3$AOD_440nm*aerocomp3$pbl))
+
+
+
+## PEARSON CORRELATIONS ####
+h_alw <- subset(aerocomp3, region2==1)
+a_alw <- subset(aerocomp3, region2==2)
+
+h_alw <- h_alw[,c(14,36,37,41,44,80)]
+a_alw <- a_alw[,c(14,36,37,41,44,80)]
+
+h_alwcor <- cor(h_alw, method="pearson", use="na.or.complete")
+a_alwcor <- cor(a_alw, method="pearson", use="na.or.complete")
+
+# Get lower triangle of the correlation matrix
+get_lower_tri<-function(h_alwcor){
+  h_alwcor[upper.tri(h_alwcor, diag=T)] <- NA
+  return(h_alwcor)
+}
+# Get upper triangle of the h_alwcor matrix
+get_upper_tri <- function(h_alwcor){
+  h_alwcor[lower.tri(h_alwcor, diag=T)]<- NA
+  return(h_alwcor)
+}
+
+haup <- get_upper_tri(h_alwcor)
+haup <- melt(haup, na.rm=T)
+laup <- get_upper_tri(a_alwcor)
+laup <- melt(laup, na.rm=T)
+
+halo <- get_lower_tri(h_alwcor)
+halo <- melt(halo, na.rm=T)
+lalo <- get_lower_tri(a_alwcor)
+lalo <- melt(lalo, na.rm=T)
+
+
+ha <- ggplot(haup, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("(a) Humid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3.5)+
+  scale_x_discrete("Humid", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), axis.title.x=element_text(size=13, face="bold"), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), plot.title.position="panel")
+la <- ggplot(laup, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("(b) Arid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3.5)+
+  scale_x_discrete("Arid", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), axis.title.x=element_text(size=13, face="bold"), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), plot.title.position="panel")
+
+acor <- ha + la + plot_layout(nrow=1, ncol=2, guides='collect') & theme(legend.position='right')
+mypath <- file.path("D:/MMF/eta2/plots/", paste("alwregime_pearson_corrplot_new.png"))
+png(filename=mypath, width=6.5, height=3, units="in", res=300)
+print(acor)
+dev.off()
+
+
+## Seasonal Pearson 
+h_alw2 <- subset(aerocomp3, region2==1)
+a_alw2 <- subset(aerocomp3, region2==2)
+
+h_alw2 <- h_alw2[,c(2,14,36,37,41,44,80)]
+a_alw2 <- a_alw2[,c(2,14,36,37,41,44,80)]
+
+
+for(i in 1:4){
+  hig <- subset(h_alw2, Season==i)
+  low <- subset(a_alw2, Season==i)
+  hig$Season <- NULL
+  low$Season <- NULL
+  highcor <- cor(hig, method="pearson", use="na.or.complete")
+  lowcor <- cor(low, method="pearson", use="na.or.complete")
+  haup <- get_upper_tri(highcor)
+  haup <- melt(haup, na.rm=T)
+  laup <- get_upper_tri(lowcor)
+  laup <- melt(laup, na.rm=T)
+  ha <- ggplot(haup, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + ggtitle("(a) Humid")+
+    geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3.5)+
+    scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+    scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+    scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                         midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+    theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=40, hjust=0, vjust=0), plot.title=element_text(size=13), 
+                                      axis.text.y=element_text(color="black", hjust=1), axis.line=element_line())
+  la <- ggplot(laup, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + ggtitle("(b) Arid")+
+    geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3.5)+
+    scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+    scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+    scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                         midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+    theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=40, hjust=0, vjust=0), plot.title=element_text(size=13), 
+                                      axis.text.y=element_text(color="black", hjust=1), axis.line=element_line())
+  acor <- ha + la + plot_layout(nrow=1, ncol=2, guides='collect') & theme(legend.position='right') #+ plot_annotation(title=i)
+  mypath <- file.path("D:/MMF/eta2/plots/", paste("alwregime_pearson_corrplot_szn_new",i,".png", sep=""))
+  png(filename=mypath, width=6, height=3, units="in", res=300)
+  print(acor)
+  dev.off()
+}
+
+hig1 <- subset(h_alw2, Season==1)
+low1 <- subset(a_alw2, Season==1)
+hig1$Season <- NULL
+low1$Season <- NULL
+highcor1 <- cor(hig1, method="pearson", use="na.or.complete")
+lowcor1 <- cor(low1, method="pearson", use="na.or.complete")
+haup1 <- get_upper_tri(highcor1)
+haup1 <- melt(haup1, na.rm=T)
+laup1 <- get_upper_tri(lowcor1)
+laup1 <- melt(laup1, na.rm=T)
+ha1 <- ggplot(haup1, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Humid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("Humid", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("Winter", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+la1 <- ggplot(laup1, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Arid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("Arid", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+hig2 <- subset(h_alw2, Season==2)
+low2 <- subset(a_alw2, Season==2)
+hig2$Season <- NULL
+low2$Season <- NULL
+highcor2 <- cor(hig2, method="pearson", use="na.or.complete")
+lowcor2 <- cor(low2, method="pearson", use="na.or.complete")
+haup2 <- get_upper_tri(highcor2)
+haup2 <- melt(haup2, na.rm=T)
+laup2 <- get_upper_tri(lowcor2)
+laup2 <- melt(laup2, na.rm=T)
+ha2 <- ggplot(haup2, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Humid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("Spring", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+la2 <- ggplot(laup2, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Arid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+hig3 <- subset(h_alw2, Season==3)
+low3 <- subset(a_alw2, Season==3)
+hig3$Season <- NULL
+low3$Season <- NULL
+highcor3 <- cor(hig3, method="pearson", use="na.or.complete")
+lowcor3 <- cor(low3, method="pearson", use="na.or.complete")
+haup3 <- get_upper_tri(highcor3)
+haup3 <- melt(haup3, na.rm=T)
+laup3 <- get_upper_tri(lowcor3)
+laup3 <- melt(laup3, na.rm=T)
+ha3 <- ggplot(haup3, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Humid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("Summer", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+la3 <- ggplot(laup3, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Arid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+hig4 <- subset(h_alw2, Season==4)
+low4 <- subset(a_alw2, Season==4)
+hig4$Season <- NULL
+low4$Season <- NULL
+highcor4 <- cor(hig4, method="pearson", use="na.or.complete")
+lowcor4 <- cor(low4, method="pearson", use="na.or.complete")
+haup4 <- get_upper_tri(highcor4)
+haup4 <- melt(haup4, na.rm=T)
+laup4 <- get_upper_tri(lowcor4)
+laup4 <- melt(laup4, na.rm=T)
+ha4 <- ggplot(haup4, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Humid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("Fall", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+la4 <- ggplot(laup4, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("Arid")+
+  geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3)+
+  scale_x_discrete("", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+  scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+  scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                       midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+  theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13, hjust=0.5), 
+                                    axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title=element_text(face="bold"))
+
+acor <- ha1 + la1 + ha2 + la2 + ha3 + la3 + ha4 +la4 + plot_layout(nrow=4, ncol=2, guides='collect') & theme(legend.position='right')
+mypath <- file.path("D:/MMF/eta2/plots/", paste("alwregime_pearson_corrplot_szns.png", sep=""))
+png(filename=mypath, width=6, height=9.5, units="in", res=300)
+print(acor)
+dev.off()
+
+#annual change
+h_alw3 <- subset(aerocomp3, region2==1)
+a_alw3 <- subset(aerocomp3, region2==2)
+
+h_alw3 <- h_alw3[,c(5,14,36,37,41,44,80)]
+a_alw3 <- a_alw3[,c(5,14,36,37,41,44,80)]
+
+for(i in 2002:2016){
+  hig <- subset(h_alw3, Year==i)
+  low <- subset(a_alw3, Year==i)
+  hig$Season <- NULL
+  low$Season <- NULL
+  highcor <- cor(hig, method="pearson", use="na.or.complete")
+  lowcor <- cor(low, method="pearson", use="na.or.complete")
+  haup <- get_upper_tri(highcor)
+  haup <- melt(haup, na.rm=T)
+  laup <- get_upper_tri(lowcor)
+  laup <- melt(laup, na.rm=T)
+  ha <- ggplot(haup, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("(a) Humid")+
+    geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3.5)+
+    scale_x_discrete("Humid", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+    scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+    scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                         midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+    theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13), 
+                                      axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title.x=element_text(face="bold"))
+  la <- ggplot(laup, aes(Var1, Var2, fill=value)) + xlab("") + ylab("") + #ggtitle("(b) Arid")+ 
+    geom_tile(color="white") + geom_text(aes(Var1, Var2, label=round(value, 2)), parse=F, color="black", size=3.5)+
+    scale_x_discrete("Arid", position="top", labels=c("AOD",expression("PM"[2.5]),"Nitrate","Sulfate","PBL"))+
+    scale_y_discrete("", labels=c(expression("PM"[2.5]),"Nitrate","Sulfate","PBL","ALW"))+
+    scale_fill_gradient2(expression(rho[P]), limits=c(-1,1), low="blue", mid="#D3D3D3", high="red", 
+                         midpoint=0, na.value="transparent", guide='colourbar', space="Lab", oob=squish)+
+    theme_classic(base_size=13)+theme(axis.text.x=element_text(color="black", angle=90, hjust=0, vjust=0), plot.title=element_text(size=13), 
+                                      axis.text.y=element_text(color="black", hjust=1), axis.line=element_line(), axis.title.x=element_text(face="bold"))
+  acor <- ha + la + plot_layout(nrow=1, ncol=2, guides='collect') + plot_annotation(title=i) & theme(legend.position='right') 
+  mypath <- file.path("D:/MMF/eta2/plots/sites/", paste("alwregime_pearson_corrplot_yr_new",i,".png", sep=""))
+  png(filename=mypath, width=6.2, height=3, units="in", res=300)
+  print(acor)
+  dev.off()
+}
+
+
+## SUPPLEMENTAL FIGURES ####
+###FIG S1 Maps of Hourly & Composition Sites ####
+aerocomp2 # AERONET lat lon - daily
+epachem1 # EPA lat lon - chem comp pt 1
+csn # EPA lat lon - chem comp pt 2
+aeroimp # IMPROVE lat lon - chem comp pt 3
+
+aeronethr # AERONET lat lon - hourly
+epapmhrly # EPA lat lon - hourly 
+hrsites <- c("BONDVILLE","Fresno_2","GSFC","MD_Science_Center")
+
+# hourly 
+aerohrsites <- data.frame(Site=aeronethr$AERONET_Site, Latitude=aeronethr$Latitude, Longitude=aeronethr$Longitude)
+aerohrsites <- aerohrsites[!duplicated(aerohrsites),]
+aerohrsites$Site <- ifelse(aerohrsites$Site!="BONDVILLE" & aerohrsites$Site!="Fresno_2" & 
+                             aerohrsites$Site!="GSFC" & aerohrsites$Site!="MD_Science_Center", NA, aerohrsites$Site)
+aerohrsites <- drop_na(aerohrsites, Site)
+epahrsites <- data.frame(Site=epapmhrly$Local.Site.Name, AERO_Site=epapmhrly$AERONET_Site, Lat=epapmhrly$Lat_EPA, Lon=epapmhrly$Lon_EPA)
+epahrsites <- epahrsites[!duplicated(epahrsites),]
+epahrsites$AERO_Site <- ifelse(epahrsites$AERO_Site!="BONDVILLE" & epahrsites$AERO_Site!="Fresno_2" & 
+                             epahrsites$AERO_Site!="GSFC" & epahrsites$AERO_Site!="MD_Science_Center", NA, epahrsites$AERO_Site)
+epahrsites <- drop_na(epahrsites, AERO_Site)
+
+
+states <- map_data("state")
+g<-ggplot(data=states, aes(x=long,y=lat))+geom_polygon(aes(group=group),fill="white",colour="black",linewidth=0.2)+coord_fixed(1.3)
+hr <- g + geom_point(data=aerohrsites, aes(Longitude, Latitude, fill='c1', shape='c1'), size=3, alpha=1)+
+  geom_point(data=epahrsites, aes(Lon, Lat, fill='c2', shape='c2'), size=2, alpha=0.8)+
+  scale_fill_manual("Network", values=c("firebrick1","dodgerblue",'green3'), labels=c("AERONET","EPA","IMPROVE"))+
+  scale_shape_manual("Network", values=c(24,21,22), labels=c("AERONET","EPA","IMPROVE"))+
+  geom_text(aes(-125,50, label="(a)"), color="black", size=4)+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        panel.background=element_blank(), legend.key=element_blank(), axis.title=element_blank(),
+        axis.text=element_blank(), axis.ticks=element_blank(), legend.position="none")
+hr
+
+# daily
+aerodaysites <- data.frame(Site=aerocomp2$AERONET_Site, Latitude=aerocomp2$Latitude, Longitude=aerocomp2$Longitude)
+aerodaysites <- aerodaysites[!duplicated(aerodaysites),]
+epaday1 <- data.frame(Site=epachem1$Local.Site.Name, AERO_Site=epachem1$AERONET_Site, Lat=epachem1$Lat_EPA, Lon=epachem1$Lon_EPA)
+epaday1 <- epaday1[!duplicated(epaday1),]
+epaday1 <- subset(epaday1, AERO_Site!="Ames" & AERO_Site!="Missoula")
+epaday2 <- data.frame(Site=csn$Local.Site.Name, AERO_Site=csn$AERONET_Site, Lat=csn$Lat_EPA, Lon=csn$Lon_EPA)
+epaday2 <- epaday2[!duplicated(epaday2),]
+epadays <- rbind(epaday1, epaday2)
+impsites <- data.frame(Site=aeroimp$SiteCode, AERO_Site=aeroimp$AERONET_Site, Lat=aeroimp$Lat, Lon=aeroimp$Lon)
+impsites <- impsites[!duplicated(impsites),]
+impsites <- subset(impsites, AERO_Site!="Egbert" & AERO_Site!="Cart_Site")
+
+states <- map_data("state")
+g<-ggplot(data=states,aes(x=long,y=lat))+geom_polygon(aes(group=group),fill="white",colour="black",linewidth=0.2)+coord_fixed(1.3)
+cc <- g + geom_point(data=aerodaysites, aes(Longitude, Latitude, fill='c1', shape='c1', size='c1'), alpha=1)+
+  geom_point(data=epadays, aes(Lon, Lat, fill='c2', shape='c2', size='c2'), alpha=0.8)+
+  geom_point(data=impsites, aes(Lon, Lat, fill='c3', shape='c3', size='c3'), alpha=0.8)+
+  scale_fill_manual("Network", values=c("firebrick1","dodgerblue","green3"), labels=c("AERONET","EPA","IMPROVE"))+
+  scale_shape_manual("Network", values=c(24,21,22), labels=c("AERONET","EPA","IMPROVE"))+
+  scale_size_manual("Network", values=c(3,2,2), labels=c("AERONET","EPA","IMPROVE"))+
+  geom_text(aes(-125,50, label="(b)"), color="black", size=4)+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), legend.key=element_blank(), axis.title=element_blank(),
+        axis.text=element_blank(), axis.ticks=element_blank(), legend.position=c(0.96,0.23))
+cc
+
+maps <- hr + cc + plot_layout(ncol=1, nrow=2, guides(fill="none"))
+mypath <- file.path("D:/MMF/eta2/plots/", paste("maps_hr_and_comp.png"))
+png(filename=mypath, width=5, height=5, units="in", res=300)
+print(maps)
+dev.off()
+
+
+### FIG S2 Comparison of ALW with and without ammonium included ####
+am <- ggplot(aerocomp3, aes(ALW_no3v, ALW_amm))+
+  geom_text(aes(x=3, y=70, label="(b)"), size=4)+
+  geom_abline(slope=1, intercept=0, linetype="solid", color="black", linewidth=1)+
+  geom_point(shape=21, fill="turquoise1", color="turquoise4", size=2, alpha=0.8)+
+  scale_x_continuous(expression("ALW without NH"[4]~(mu*g~m^{-3})), limits=c(0,70), breaks=c(0,10,20,30,40,50,60,70),
+                     labels=c(0,10,20,30,40,50,60,70))+
+  scale_y_continuous(expression("ALW with NH"[4]~(mu*g~m^{-3})), limits=c(0,70), breaks=c(0,10,20,30,40,50,60,70),
+                     labels=c(0,10,20,30,40,50,60,70))+
+  theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), 
+        axis.text=element_text(color="black", size=8), axis.title=element_text(color="black", size=10),
+        axis.line=element_line(color="black"), axis.ticks=element_line(color="black"))
+mypath <- file.path("D:/MMF/eta2/plots/", paste("amm_alwsensitivity_new.png"))
+png(filename=mypath, width=5, height=4.5, units="in", res=300)
+print(am)
+dev.off()
+
+am2 <- ggplot(aerocomp3, aes(Date, ALW_no3v))+#ylab(expression("ALW"~(mu*g~m^{-3})))+
+  geom_text(aes(x=as.Date("2002-01-01"), y=13, label="(a)"), size=4)+
+  geom_smooth(aes(color='c1'), method="loess", span=0.05, se=F, size=2)+
+  geom_smooth(aes(y=ALW_amm, color='c2'), method="loess", span=0.05, se=F, size=2)+
+  scale_x_date("Date", limits=c(as.Date("2002-01-01"),as.Date("2016-12-31")), date_breaks="1 year", date_labels="%Y")+
+  scale_color_manual("", values=c("turquoise1","chocolate3"), labels=c(expression("ALW without NH"[4]),expression("ALW with NH"[4])))+
+  scale_y_continuous(expression("ALW mass"~(mu*g~m^{-3})), breaks=c(0,3,6,9,12), labels=c(0,3,6,9,12))+
+  theme(panel.background=element_blank(), panel.grid.major=element_blank(), panel.grid.minor=element_blank(), 
+        legend.text=element_text(size=12, hjust=0), axis.text=element_text(color="black", size=12), 
+        axis.title=element_text(color="black", size=14), legend.key=element_blank(), axis.line=element_line(color="black"), 
+        axis.ticks=element_line(color="black"), legend.position=c(0.15,0.1), legend.background=element_blank())
+mypath <- file.path("D:/MMF/eta2/plots/", paste("amm_alwsensitivitytime_new.png"))
+png(filename=mypath, width=8, height=4.5, units="in", res=300)
+print(am2)
+dev.off()
+
+am1 <- am2 + inset_element(p=am, 0.55, 0.4, 1, 1, align_to='full', on_top=T)
+mypath <- file.path("D:/MMF/eta2/plots/", paste("amm_alwsensitivities_new.png"))
+png(filename=mypath, width=8, height=5, units="in", res=300)
+print(am1)
+dev.off()
+
+
+t.test(aerocomp3$ALW_no3v, y=aerocomp3$ALW_amm, alternative="g", mu=0, conf.level=0.95)
+aerocomp3$ammdiff <- (aerocomp3$ALW_amm-aerocomp3$ALW_no3v)/((aerocomp3$ALW_no3v+aerocomp3$ALW_amm)/2)*100
+summary(aerocomp3$ammdiff, na.rm=T)
+
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  a <- summary(site$ammdiff, na.rm=T)
+  print(c(i,a))
+}
+
+
+###FIG S3 kappa comparison for organic ALW exclusion ####
+gsfc <- subset(aeroimp, AERONET_Site=="GSFC")
+gsfc$Year2 <- ifelse(gsfc$Month==12, gsfc$Year+1, gsfc$Year)
+YrQtr <- as.yearqtr(as.yearmon(gsfc$Date, "%Y-%m-%d") + 1/12)
+gsfc$Season <- as.numeric(factor(format(YrQtr, "%q"), levels=1:4, labels=c("1","2","3","4")))
+gsfc$YrQtr <- as.yearqtr(as.yearmon(gsfc$Date, "%Y-%m-%d") + 1/12)
+
+gsfc$ratio <- ifelse(gsfc$Season==1, 1.306703,
+                     ifelse(gsfc$Season==2, 1.276604,
+                            ifelse(gsfc$Season==3, 2.055942,
+                                   ifelse(gsfc$Season==4, 1.434469, NA))))
+
+
+gsfc$OM <- (gsfc$OCtot * gsfc$ratio)
+gsfc$OM_gcm3 <- gsfc$OM*(1/10^6)*(1/10^6)
+gsfc$Vo <- gsfc$OM_gcm3/1.4
+gsfc$aw_1aw <- (gsfc$rh/(1-gsfc$rh))
+gsfc$Vwo_k3 <- (gsfc$Vo)*(0.3)*(gsfc$aw_1aw) #using a korg value of 0.3 for rural location aerosol
+gsfc$Vwo_ugm3_k3 <- (gsfc$Vwo_k3*(10^6)*(10^6))
+gsfc$Vwo_k05 <- (gsfc$Vo)*(0.05)*(gsfc$aw_1aw) #opposite end korg value of 0.05
+gsfc$Vwo_ugm3_k05 <- (gsfc$Vwo_k05*(10^6)*(10^6))
+
+gsfccomp <- data.frame(Site=gsfc$AERONET_Site,Date=gsfc$Date,SO4=gsfc$SO4,NO3=gsfc$NO3,Na=gsfc$NAf,Chl=gsfc$CHL,Ca=gsfc$CA,K=gsfc$K,
+                       Mg=gsfc$MG,OM=gsfc$OM,ALW=gsfc$ALW,ALW_org05=gsfc$Vwo_ugm3_k05)
+gsfccomp[is.na(gsfccomp)] <- 0
+gsfccomp$Dust_NaCl <- gsfccomp$Ca+gsfccomp$K+gsfccomp$Mg+gsfccomp$Na+gsfccomp$Chl
+#drop individual ion columns for plotting
+gsfccomp$Na<-NULL
+gsfccomp$Chl<-NULL
+gsfccomp$Ca<-NULL
+gsfccomp$K<-NULL
+gsfccomp$Mg<-NULL
+
+gsfccomp <- aggregate(gsfccomp, by=list(gsfccomp$Site, gsfccomp$Date), FUN="mean", na.rm=T)
+gsfccomp$Site <- gsfccomp$Group.1
+gsfccomp$Group.1 <- NULL
+gsfccomp$Group.2 <- NULL
+
+gsfccomp <- gsfccomp[,c(1,2,8,7,6,5,4,3)]
+gsfccomp <- gather(gsfccomp, Dust_NaCl:SO4, key="species", value="value", factor_key=T)
+gsfccomptots <- gsfccomp %>% dplyr::group_by(Site, Date) %>% dplyr::summarize(total=sum(value))
+gsfccomp <- merge(gsfccomp, gsfccomptots, by=c("Site","Date"), all=T)
+
+gsfccomp2 <- data.frame(Site=gsfc$AERONET_Site,Date=gsfc$Date,SO4=gsfc$SO4,NO3=gsfc$NO3,Na=gsfc$NAf,Chl=gsfc$CHL,Ca=gsfc$CA,K=gsfc$K,
+                        Mg=gsfc$MG,OM=gsfc$OM,ALW=gsfc$ALW,ALW_org3=gsfc$Vwo_ugm3_k3)
+gsfccomp2[is.na(gsfccomp2)] <- 0
+gsfccomp2$Dust_NaCl <- gsfccomp2$Ca+gsfccomp2$K+gsfccomp2$Mg+gsfccomp2$Na+gsfccomp2$Chl
+#drop individual ion columns for plotting
+gsfccomp2$Na<-NULL
+gsfccomp2$Chl<-NULL
+gsfccomp2$Ca<-NULL
+gsfccomp2$K<-NULL
+gsfccomp2$Mg<-NULL
+
+gsfccomp2 <- aggregate(gsfccomp2, by=list(gsfccomp2$Site, gsfccomp2$Date), FUN="mean", na.rm=T)
+gsfccomp2$Site <- gsfccomp2$Group.1
+gsfccomp2$Group.1 <- NULL
+gsfccomp2$Group.2 <- NULL
+
+gsfccomp2 <- gsfccomp2[,c(1,2,8,7,6,5,4,3)]
+gsfccomp2 <- gather(gsfccomp2, Dust_NaCl:SO4, key="species", value="value", factor_key=T)
+gsfccomp2tots <- gsfccomp2 %>% dplyr::group_by(Site, Date) %>% dplyr::summarize(total=sum(value))
+gsfccomp2 <- merge(gsfccomp2, gsfccomp2tots, by=c("Site","Date"), all=T)
+
+
+g1 <- ggplot(gsfccomp, aes(x=Date, y=value, fill=species))+ylab("Fraction")+
+  geom_bar(position="fill", stat="identity")+geom_text(aes(as.Date("2015-10-01"), 0.95, label="(a)"))+
+  scale_fill_manual("", values=c("saddlebrown","turquoise4","lightskyblue","forestgreen","blue","red"),
+                    labels=c("Dust, Na, Cl",expression("ALW"[org]),"ALW","OM","Nitrate","Sulfate"))+
+  scale_x_date("Date", date_breaks="1 year", date_labels="%Y", limits=c(as.Date("2002-01-01"),as.Date("2015-10-31")))+
+  theme(panel.grid=element_blank(), panel.background=element_blank(), axis.line=element_line(), legend.text=element_text(hjust=0), 
+        axis.text=element_text(color="black"), legend.position="top", axis.ticks=element_line(),plot.title=element_text(size=12), 
+        legend.key.size=unit(0.2, "in"), legend.key=element_blank()) + guides(fill=guide_legend(nrow=1))
+g2 <- ggplot(gsfccomp2, aes(x=Date, y=value, fill=species))+ylab("Fraction")+
+  geom_bar(position="fill", stat="identity")+geom_text(aes(as.Date("2015-10-01"), 0.95, label="(b)"))+
+  scale_fill_manual("", values=c("saddlebrown","turquoise4","lightskyblue","forestgreen","blue","red"),
+                    labels=c("Dust, Na, Cl",expression("ALW"[org]),"ALW","OM","Nitrate","Sulfate"))+
+  scale_x_date("Date", date_breaks="1 year", date_labels="%Y", limits=c(as.Date("2002-01-01"),as.Date("2015-10-31")))+
+  theme(panel.grid=element_blank(), panel.background=element_blank(), axis.line=element_line(), legend.text=element_text(hjust=0),
+        axis.text=element_text(color="black"), legend.position="top", axis.ticks=element_line(),plot.title=element_text(size=12), 
+        legend.key.size=unit(0.2, "in"), legend.key=element_blank()) + guides(fill=guide_legend(nrow=1))
+g3 <- g1 + g2 + plot_layout(ncol=1, nrow=2, guides='collect') & theme(legend.position="bottom")
+mypath <- file.path("D:/MMF/eta2/plots/", paste("gsfc_kappa_comps.png"))
+png(filename=mypath, width=6, height=5, units="in", res=300)
+print(g3)
+dev.off()
+
+
+#calculating % of mass that organic ALW takes up from total PM2.5 mass (ALW included) & from total ALW mass
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  a <- mean(site$Vwo_ugm3_k05/(site$Vwo_ugm3_k05+site$ALW_no3v)*100, na.rm=T)
+  b <- median(site$Vwo_ugm3_k05/(site$Vwo_ugm3_k05+site$ALW_no3v)*100, na.rm=T)
+  c <- mean(site$Vwo_ugm3_k3/(site$Vwo_ugm3_k3+site$ALW_no3v)*100, na.rm=T)
+  d <- median(site$Vwo_ugm3_k3/(site$Vwo_ugm3_k3+site$ALW_no3v)*100, na.rm=T)
+  print(c(i,"0.05",a,b))
+  print(c(i,"0.3",c,d))
+}
+
+
+
+
+                 
+## CMAQ ANALYSIS ####
+## CMAQ AUGUST 2015 & JAN 2016 ANALYSIS 
+## DATA READ IN ####
+aero1516 <- read.csv("D:/MMF/ETA_proj/data/orig_combined_data/All_Sites_Times_Daily_averages_AOD20.dat", header=T, skip=6)
+aero1516 <- aero1516[,c(1:7,10,19,22,25,26,80:82)]
+colnames(aero1516) <- c("AERO_Site","Date","Time","Day_of_Year","AOD_1640nm","AOD_1020nm","AOD_870nm","AOD_675nm","AOD_500nm",
+                       "AOD_440nm","AOD_380nm","AOD_340nm","Latitude","Longitude","Site_Elevation")
+
+aero1516$Date <- as.Date(aero1516$Date, format="%d:%m:%Y")
+#subset lat lon [25,50] & [-125, -65]
+aero1516$Latitude <- ifelse(aero1516$Latitude < 25 | aero1516$Latitude > 49, NA, aero1516$Latitude)
+aero1516$Longitude <- ifelse(aero1516$Longitude < -124 | aero1516$Longitude > -66, NA, aero1516$Longitude)
+
+aero1516 <- drop_na(aero1516, Latitude, Longitude)
+
+aero1516$Date <- as.Date(aero1516$Date, format="%d:%m:%Y")
+aero1516$Year <- as.numeric(substring(aero1516$Date,1,4))
+aero1516$Month <- as.numeric(substring(aero1516$Date,6,7))
+
+aero1516 <- subset(aero1516, Year==2015 | Year==2016)
+aero15 <- subset(aero1516, Year==2015 & Month==8)
+aero16 <- subset(aero1516, Year==2016 & Month==1)
+
+aero15sites <- data.frame(AERO_Site=aero15$AERO_Site, Latitude=aero15$Latitude, Longitude=aero15$Longitude, 
+                          Site_Elevation=aero15$Site_Elevation)
+aero15sites <- aero15sites[!duplicated(aero15sites),]
+aero16sites <- data.frame(AERO_Site=aero16$AERO_Site, Latitude=aero16$Latitude, Longitude=aero16$Longitude, 
+                          Site_Elevation=aero16$Site_Elevation)
+aero16sites <- aero16sites[!duplicated(aero16sites),]
+
+#drop Table Mountain CA, LISCO, USC_SEAPRISM sites bc bad/no data for 440nm
+aero15sites <- subset(aero15sites, AERO_Site!="TABLE_MOUNTAIN_CA" & AERO_Site!="USC_SEAPRISM" & AERO_Site!="USC_SEAPRISM_2")
+aero16sites <- subset(aero16sites, AERO_Site!="TABLE_MOUNTAIN_CA" & AERO_Site!="USC_SEAPRISM" & AERO_Site!="USC_SEAPRISM_2")
+
+
+imp1516 <- read_xlsx("D:/MMF/eta2/data/cmaq/improve_2015-2016.xlsx", col_names=T)
+colnames(imp1516) <- c("Dataset","SiteCode","POC","Date","SiteName","Latitude","Longitude","Elevation","EPACode","AL","ammNO3",
+                       "ammSO4","CA","EC","OC1","OC2","OC3","OC4","OP","OCtot","CHL","FE","MG","PM2.5","NO3","K","SI","NAf","SO4","TI")
+imp1516$Date <- as.Date(imp1516$Date, format="%m/%d/%Y")
+imp1516$Year <- as.numeric(substring(imp1516$Date,1,4))
+imp1516$Month <- as.numeric(substring(imp1516$Date,6,7))
+
+imp1516$Latitude <- ifelse(imp1516$Latitude < 25 | imp1516$Latitude > 49, NA, imp1516$Latitude)
+imp1516$Longitude <- ifelse(imp1516$Longitude < -124 | imp1516$Longitude > -66, NA, imp1516$Longitude)
+imp1516 <- drop_na(imp1516, Latitude, Longitude)
+
+imp15 <- subset(imp1516, Year==2015 & Month==8)
+imp16 <- subset(imp1516, Year==2016 & Month==1)
+
+imp15sites <- data.frame(SiteCode=imp15$SiteCode, Latitude=imp15$Latitude, Longitude=imp15$Longitude, Elevation=imp15$Elevation)
+imp15sites <- imp15sites[!duplicated(imp15sites),]
+imp16sites <- data.frame(SiteCode=imp16$SiteCode, Latitude=imp16$Latitude, Longitude=imp16$Longitude, Elevation=imp16$Elevation)
+imp16sites <- imp16sites[!duplicated(imp16sites),]
+
+
+csn1516 <- read_xlsx("D:/MMF/eta2/data/cmaq/epacsn_2015-2016.xlsx", col_names=T)
+colnames(csn1516) <- c("Dataset","EPASiteCode","POC","Date","SiteName","Latitude","Longitude","Elevation","EPACode","PM2.5_88502","AL",
+                       "Amm_Ion","CA","EC","OC1","OC2","OC3","OC4","OP","OCtot","CHL","FE","MG","PM2.5","RC_PM2.5","NO3","K","SI",
+                       "NAf","SO4","TI")
+csn1516$Date <- as.Date(csn1516$Date, format="%m/%d/%Y")
+csn1516$Year <- as.numeric(substring(csn1516$Date,1,4))
+csn1516$Month <- as.numeric(substring(csn1516$Date,6,7))
+
+csn1516$Latitude <- ifelse(csn1516$Latitude < 25 | csn1516$Latitude > 49, NA, csn1516$Latitude)
+csn1516$Longitude <- ifelse(csn1516$Longitude < -124 | csn1516$Longitude > -66, NA, csn1516$Longitude)
+csn1516 <- drop_na(csn1516, Latitude, Longitude)
+
+csn15 <- subset(csn1516, Year==2015 & Month==8)
+csn16 <- subset(csn1516, Year==2016 & Month==1)
+
+csn15sites <- data.frame(Site=csn15$SiteName, EPASiteCode=csn15$EPASiteCode, Latitude=csn15$Latitude, Longitude=csn15$Longitude, 
+                         Elevation=csn15$Elevation)
+csn16sites <- data.frame(Site=csn16$SiteName, EPASiteCode=csn16$EPASiteCode, Latitude=csn16$Latitude, Longitude=csn16$Longitude, 
+                         Elevation=csn16$Elevation)
+csn15sites <- csn15sites[!duplicated(csn15sites),]
+csn16sites <- csn16sites[!duplicated(csn16sites),]
+
+
+
+
+#now time to match by lat lon of aeronet sites
+aero15sites$MinLat <- aero15sites$Latitude-0.5
+aero15sites$MaxLat <- aero15sites$Latitude+0.5
+aero15sites$MinLon <- aero15sites$Longitude-0.5
+aero15sites$MaxLon <- aero15sites$Longitude+0.5
+
+imp15names <- imp15sites$SiteCode
+
+imp15s <- list()
+imp15aero <- list()
+for(i in imp15names){
+  imp <- subset(imp15, SiteCode==i)
+  imps <- data.frame(near=ifelse(imp$Latitude >= aero15sites$MinLat & imp$Latitude <= aero15sites$MaxLat & 
+                                   imp$Longitude >= aero15sites$MinLon & imp$Longitude <= aero15sites$MaxLon, 1, 2))
+  imps$SiteCode <- i
+  imps$AERO_Site <- aero15sites$AERO_Site
+  imp15s[[i]] <- imps
+}
+imp15aero <- do.call(rbind, imp15s)
+imp15aero <- subset(imp15aero, near==1)
+
+aero16sites$MinLat <- aero16sites$Latitude-0.5
+aero16sites$MaxLat <- aero16sites$Latitude+0.5
+aero16sites$MinLon <- aero16sites$Longitude-0.5
+aero16sites$MaxLon <- aero16sites$Longitude+0.5
+
+imp16names <- imp16sites$SiteCode
+
+imp16s <- list()
+imp16aero <- list()
+for(i in imp16names){
+  imp <- subset(imp16, SiteCode==i)
+  imps <- data.frame(near=ifelse(imp$Latitude >= aero16sites$MinLat & imp$Latitude <= aero16sites$MaxLat & 
+                                   imp$Longitude >= aero16sites$MinLon & imp$Longitude <= aero16sites$MaxLon, 1, 2))
+  imps$SiteCode <- i
+  imps$AERO_Site <- aero16sites$AERO_Site
+  imp16s[[i]] <- imps
+}
+imp16aero <- do.call(rbind, imp16s)
+imp16aero <- subset(imp16aero, near==1)
+
+
+#csn time
+csn15names <- csn15sites$Site
+
+csn15s <- list()
+csn15aero <- list()
+for(i in csn15names){
+  csn <- subset(csn15sites, Site==i)
+  csns <- data.frame(near=ifelse(csn$Lat >= aero15sites$MinLat & csn$Lat <= aero15sites$MaxLat & 
+                                   csn$Lon >= aero15sites$MinLon & csn$Lon <= aero15sites$MaxLon, 1, 2))
+  csns$Site <- i
+  csns$AERO_Site <- aero15sites$AERO_Site
+  csn15s[[i]] <- csns
+}
+csn15aero <- do.call(rbind, csn15s)
+csn15aero <- subset(csn15aero, near==1)
+
+aero16sites$MinLat <- aero16sites$Latitude-0.5
+aero16sites$MaxLat <- aero16sites$Latitude+0.5
+aero16sites$MinLon <- aero16sites$Longitude-0.5
+aero16sites$MaxLon <- aero16sites$Longitude+0.5
+
+csn16names <- csn16sites$Site
+
+csn16s <- list()
+csn16aero <- list()
+for(i in csn16names){
+  csn <- subset(csn16sites, Site==i)
+  csns <- data.frame(near=ifelse(csn$Lat >= aero16sites$MinLat & csn$Lat <= aero16sites$MaxLat & 
+                                   csn$Lon >= aero16sites$MinLon & csn$Lon <= aero16sites$MaxLon, 1, 2))
+  csns$Site <- i
+  csns$AERO_Site <- aero16sites$AERO_Site
+  csn16s[[i]] <- csns
+}
+csn16aero <- do.call(rbind, csn16s)
+csn16aero <- subset(csn16aero, near==1)
+
+
+#now merge back with lat/lons! 
+imp15sites <- merge(imp15sites, imp15aero, by=c("SiteCode"))
+imp16sites <- merge(imp16sites, imp16aero, by=c("SiteCode"))
+
+csn15sites <- merge(csn15sites, csn15aero, by=c("Site"))
+csn16sites <- merge(csn16sites, csn16aero, by=c("Site"))
+
+aero15sites1 <- merge(aero15sites, imp15aero, by=c("AERO_Site"))
+aero15sites2 <- merge(aero15sites, csn15aero, by=c("AERO_Site"))
+aero16sites1 <- merge(aero16sites, imp16aero, by=c("AERO_Site"))
+aero16sites2 <- merge(aero16sites, csn16aero, by=c("AERO_Site"))
+
+aero15si <- sort(unique(aero15sites1$AERO_Site))
+aero15se <- sort(unique(aero15sites2$AERO_Site))
+aero15s <- c(aero15si, aero15se)
+aero15s <- unique(aero15s)
+
+for(i in aero15s){
+  epa <- subset(aero15sites2, AERO_Site==i)
+  imp <- subset(aero15sites1, AERO_Site==i)
+  ifelse(epa$near==1 & imp$near==1, print(i), print("NA"))
+  ifelse(epa$near==1 & imp$near==1, print(imp$SiteCode), print("NA"))
+}
+
+aero16si <- sort(unique(aero16sites1$AERO_Site))
+aero16se <- sort(unique(aero16sites2$AERO_Site))
+aero16s <- c(aero16si, aero16se)
+aero16s <- unique(aero16s)
+
+for(i in aero16s){
+  epa <- subset(aero16sites2, AERO_Site==i)
+  imp <- subset(aero16sites1, AERO_Site==i)
+  ifelse(epa$near==1 & imp$near==1, print(i), print("NA"))
+  ifelse(epa$near==1 & imp$near==1, print(imp$SiteCode), print("NA"))
+}
+
+
+#drop Egbert & Toronto sites (Canada)
+aero15sites1 <- subset(aero15sites1, AERO_Site!="Egbert" & AERO_Site!="Toronto")
+aero15sites2 <- subset(aero15sites2, AERO_Site!="Egbert" & AERO_Site!="Toronto")
+aero16sites1 <- subset(aero16sites1, AERO_Site!="Egbert" & AERO_Site!="Toronto")
+aero16sites2 <- subset(aero16sites2, AERO_Site!="Egbert" & AERO_Site!="Toronto")
+
+imp15sites <- subset(imp15sites, AERO_Site!="Egbert" & AERO_Site!="Toronto")
+imp16sites <- subset(imp16sites, AERO_Site!="Egbert" & AERO_Site!="Toronto")
+
+
+#plot 
+states <- map_data("state")
+g <- ggplot(data=states, aes(x=long, y=lat))+geom_polygon(aes(group=group), fill="white", colour="black", linewidth=0.5)+coord_fixed(1.3)
+g2 <- g + geom_point(data=aero15sites1, aes(x=Longitude, y=Latitude), shape=24, color="black", fill="firebrick3", size=3.5)+
+  geom_point(data=aero15sites2, aes(x=Longitude, y=Latitude), shape=24, color="black", fill="firebrick3", size=3.5)+
+  geom_point(data=imp15sites, aes(x=Longitude, y=Latitude), shape=22, color="black", fill="green3", size=3, alpha=0.8)+
+  geom_point(data=csn15sites, aes(x=Longitude, y=Latitude), shape=21, color="black", fill="dodgerblue", size=3, alpha=0.7)+
+  geom_text(aes(-75, 47, label="Aug 2015"), size=6)+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.background=element_blank(), axis.text=element_blank(),
+        axis.title=element_blank(), axis.ticks=element_blank())
+g2
+
+g3 <- g + geom_point(data=aero16sites1, aes(x=Longitude, y=Latitude), shape=24, color="black", fill="firebrick3", size=3.5)+
+  geom_point(data=aero16sites2, aes(x=Longitude, y=Latitude), shape=24, color="black", fill="firebrick3", size=3.5)+
+  geom_point(data=imp16sites, aes(x=Longitude, y=Latitude), shape=22, color="black", fill="green3", size=3, alpha=0.8)+
+  geom_point(data=csn16sites, aes(x=Longitude, y=Latitude), shape=21, color="black", fill="dodgerblue", size=3, alpha=0.7)+
+  geom_text(aes(-75, 47, label="Jan 2016"), size=6)+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.background=element_blank(), axis.text=element_blank(),
+        axis.title=element_blank(), axis.ticks=element_blank())
+g3
+
+mypath <- file.path("D:/MMF/eta2/plots", paste("aug15_colocatedsites.png", sep=""))
+png(filename=mypath, width=8, height=4, units="in", res=300)
+print(g2)
+dev.off()
+
+mypath <- file.path("D:/MMF/eta2/plots", paste("jan16_colocatedsites.png", sep=""))
+png(filename=mypath, width=8, height=4, units="in", res=300)
+print(g3)
+dev.off()
+
+
+
+## now merge back with actual data sets
+imp15 <- merge(imp15, imp15sites, by=c("SiteCode","Latitude","Longitude","Elevation"))
+imp16 <- merge(imp16, imp16sites, by=c("SiteCode","Latitude","Longitude","Elevation"))
+
+csn15 <- merge(csn15, csn15sites, by=c("EPASiteCode","Latitude","Longitude","Elevation"))
+csn16 <- merge(csn16, csn16sites, by=c("EPASiteCode","Latitude","Longitude","Elevation"))
+
+aero15.1 <- merge(aero15, aero15sites1, by=c("AERO_Site","Latitude","Longitude","Site_Elevation"))
+aero16.1 <- merge(aero16, aero16sites1, by=c("AERO_Site","Latitude","Longitude","Site_Elevation"))
+aero15.2 <- merge(aero15, aero15sites2, by=c("AERO_Site","Latitude","Longitude","Site_Elevation"))
+aero16.2 <- merge(aero16, aero16sites2, by=c("AERO_Site","Latitude","Longitude","Site_Elevation"))
+
+aero15.1[aero15.1==-999] <- NA
+aero16.1[aero16.1==-999] <- NA
+aero15.2[aero15.2==-999] <- NA
+aero16.2[aero16.2==-999] <- NA
+
+
+
+
+## ECMWF - ALW CALCULATION TIME ####
+#first pull up LOND1 & CCNY files & aggregate accordingly 
+lond1 <- nc_open("D:/MMF/eta/data/ecmwf/LOND1_2014-2016.nc")
+ccny1 <- nc_open("D:/MMF/eta/data/ecmwf/CCNY_2014-2016.nc")
+
+lond1.time <- as.numeric(ncvar_get(lond1, "time"))
+lond1.tdew <- as.numeric(ncvar_get(lond1, "d2m"))
+lond1.temp <- as.numeric(ncvar_get(lond1, "t2m"))
+lond1.pbl <- as.numeric(ncvar_get(lond1, "blh"))
+lond1.sp <- as.numeric(ncvar_get(lond1, "sp"))
+lond1 <- data.frame(hours=lond1.time, tdew=lond1.tdew, sfc_press=lond1.sp, pbl=lond1.pbl, sfc_temp=lond1.temp)
+lond1$dateUTC <- mdy_hms(as.character(as.chron(ISOdatetime(1800,1,1,0,0,0,"UTC")+3600*lond1$hours)))
+lond1$Date <- substring(lond1$dateUTC,1,10)
+lond1$Date <- as.Date(lond1$Date,format="%Y-%m-%d")
+lond1$hours <- NULL
+lond1$dateUTC <-NULL
+lond1$Year <- as.numeric(substring(lond1$Date,1,4))
+lond1$Month <- as.numeric(substring(lond1$Date,6,7))
+lond1$Day <- as.numeric(substring(lond1$Date,9,10))
+lond1$SiteCode <- "LOND1"
+
+ccny1.time <- as.numeric(ncvar_get(ccny1, "time"))
+ccny1.tdew <- as.numeric(ncvar_get(ccny1, "d2m"))
+ccny1.temp <- as.numeric(ncvar_get(ccny1, "t2m"))
+ccny1.pbl <- as.numeric(ncvar_get(ccny1, "blh"))
+ccny1.sp <- as.numeric(ncvar_get(ccny1, "sp"))
+ccny1 <- data.frame(hours=ccny1.time, tdew=ccny1.tdew, sfc_press=ccny1.sp, pbl=ccny1.pbl, sfc_temp=ccny1.temp)
+ccny1$dateUTC <- mdy_hms(as.character(as.chron(ISOdatetime(1800,1,1,0,0,0,"UTC")+3600*ccny1$hours)))
+ccny1$Date <- substring(ccny1$dateUTC,1,10)
+ccny1$Date <- as.Date(ccny1$Date,format="%Y-%m-%d")
+ccny1$hours <- NULL
+ccny1$dateUTC <-NULL
+ccny1$Year <- as.numeric(substring(ccny1$Date,1,4))
+ccny1$Month <- as.numeric(substring(ccny1$Date,6,7))
+ccny1$Day <- as.numeric(substring(ccny1$Date,9,10))
+ccny1$SiteCode <- "CCNY1"
+
+lond1 <- aggregate(lond1, by=list(lond1$SiteCode, lond1$Date), FUN="mean", na.rm=T)
+lond1$SiteCode <- lond1$Group.1
+lond1$Group.1 <- NULL
+lond1$Group.2 <- NULL
+
+ccny1 <- aggregate(ccny1, by=list(ccny1$SiteCode, ccny1$Date), FUN="mean", na.rm=T)
+ccny1$SiteCode <- ccny1$Group.1
+ccny1$Group.1 <- NULL
+ccny1$Group.2 <- NULL
+
+remove(lond1.pbl)
+remove(lond1.sp)
+remove(lond1.tdew)
+remove(lond1.temp)
+remove(lond1.time)
+remove(ccny1.pbl)
+remove(ccny1.sp)
+remove(ccny1.tdew)
+remove(ccny1.temp)
+remove(ccny1.time)
+
+
+#reorder dfrms to match ECMWF dataset
+lond1 <- lond1[,c(9,2:4,1,5,8,7,6)]
+ccny1 <- ccny1[,c(9,2:4,1,5,8,7,6)]
+
+#now load big ECMWF dataset in!
+ecmwf <- read.csv("D:/MMF/eta2/data/isorropia/fullecmwf_meandaily.csv", header=T)
+colnames(ecmwf) <- c("SiteCode","sfc_press","pbl","sfc_temp","tdew","Date","Day","Month","Year")
+ecmwf$Date <- as.Date(ecmwf$Date)
+
+ecmwf <- rbind(ecmwf, lond1, ccny1)
+
+ecmwf$t_celsius <- ecmwf$sfc_temp-273.15
+ecmwf$td_celsius <- ecmwf$tdew-273.15
+
+ecmwf$es_td <- (exp(34.494-(4924.99/(ecmwf$td_celsius+237.1))))/((ecmwf$td_celsius+105)^1.57)
+ecmwf$es_t <- (exp(34.494-(4924.99/(ecmwf$t_celsius+237.1))))/((ecmwf$t_celsius+105)^1.57)
+
+ecmwf$RH <- 100*(ecmwf$es_td/ecmwf$es_t)
+ecmwf$rh <- ecmwf$RH/100
+
+ecmwf$rh <- ifelse(ecmwf$rh > 0.95, NA, ecmwf$rh) #14,176 days/sites w/ RH > 95% out of 2,244,050 total 
+ecmwf <- drop_na(ecmwf, rh)
+
+remove(lond1)
+remove(ccny1)
+
+#doing improve alone first for ease
+imp15 <- merge(imp15, ecmwf, by=c("SiteCode","Date","Year","Month"))
+imp16 <- merge(imp16, ecmwf, by=c("SiteCode","Date","Year","Month"))
+
+#now drop any NA SO4 or NO3 values 
+imp15[imp15==-999] <- NA
+imp15 <- drop_na(imp15, SO4, NO3, PM2.5)
+imp15$CA <- ifelse(is.na(imp15$CA) | imp15$CA < 0, 0, imp15$CA)
+imp15$CHL <- ifelse(is.na(imp15$CHL) | imp15$CHL < 0, 0, imp15$CHL)
+imp15$MG <- ifelse(is.na(imp15$MG) | imp15$MG < 0, 0, imp15$MG)
+imp15$K <- ifelse(is.na(imp15$K) | imp15$CA < 0, 0, imp15$K)
+imp15$NAf <- ifelse(is.na(imp15$NAf) | imp15$NAf < 0, 0, imp15$NAf)
+
+imp16[imp16==-999] <- NA
+imp16 <- drop_na(imp16, SO4, NO3, PM2.5)
+imp16$CA <- ifelse(is.na(imp16$CA) | imp16$CA < 0, 0, imp16$CA)
+imp16$CHL <- ifelse(is.na(imp16$CHL) | imp16$CHL < 0, 0, imp16$CHL)
+imp16$MG <- ifelse(is.na(imp16$MG) | imp16$MG < 0, 0, imp16$MG)
+imp16$K <- ifelse(is.na(imp16$K) | imp16$CA < 0, 0, imp16$K)
+imp16$NAf <- ifelse(is.na(imp16$NAf) | imp16$NAf < 0, 0, imp16$NAf)
+
+#now write to CSVs and run ISORROPIA! 
+write.csv(imp15, "D:/MMF/eta2/data/isorropia/imp15_isoinputs.csv")
+write.csv(imp16, "D:/MMF/eta2/data/isorropia/imp16_isoinputs.csv")
+
+imp15iso <- read.table("C:/Users/madif/Desktop/ISO/eta2/imp15.dat", header=T)
+imp16iso <- read.table("C:/Users/madif/Desktop/ISO/eta2/imp16.dat", header=T)
+
+imp15$ALW <- imp15iso$WATER
+imp16$ALW <- imp16iso$WATER
+
+
+imp15.3 <- aggregate(imp15, by=list(imp15$SiteCode, imp15$Month), FUN="mean", na.rm=T)
+imp16.3 <- aggregate(imp16, by=list(imp16$SiteCode, imp16$Month), FUN="mean", na.rm=T)
+#now merge with aeronet dataset! 
+aeroimp15 <- merge(aero15.1, imp15, by=c("AERO_Site","SiteCode","Date","Year","Month","near"))
+aeroimp16 <- merge(aero16.1, imp16, by=c("AERO_Site","SiteCode","Date","Year","Month","near"))
+
+
+##NOW match EPA to nearby IMPROVE sites where needed
+epaimp15 <- read.table(text="AERO_Site	SiteCode
+Billerica	LOND1
+CCNY CCNY1
+El_Segundo	SAGA1
+Fresno_2	FRES1
+Georgia_Tech	ATLA1
+GSFC	WASH1
+Harvard_Forest	QURE1
+Harvard_Forest	PACK1
+MD_Science_Center	WASH1
+NEON_CVALLA	ROMO1
+NEON_Harvard	QURE1
+NEON_Harvard	PACK1
+NEON_ORNL	GRSM1
+Santa_Monica_Colg	SAGA1
+Sioux_Falls	BLMO1
+Table_Mountain	ROMO1
+Tallahassee	SAMA1
+Tucson	SAGU1
+Tucson	SAWE1", header=T)
+
+epaimp16 <- read.table(text="AERO_Site	SiteCode
+CCNY CCNY1
+El_Segundo	SAGA1
+Fresno_2	FRES1
+Georgia_Tech	ATLA1
+GSFC	WASH1
+MD_Science_Center	WASH1
+NEON_CVALLA	ROMO1
+NEON_Harvard	PACK1
+NEON_ORNL	GRSM1
+Table_Mountain	ROMO1
+Tallahassee	SAMA1
+Tucson	SAGU1
+Tucson	SAWE1", header=T)
+
+
+csn15.2 <- merge(csn15, epaimp15, by=c("AERO_Site"))
+csn16.2 <- merge(csn16, epaimp16, by=c("AERO_Site"))
+
+
+csn15.2 <- merge(csn15.2, ecmwf, by=c("SiteCode","Date","Year","Month"))
+csn16.2 <- merge(csn16.2, ecmwf, by=c("SiteCode","Date","Year","Month"))
+
+#now drop any NA SO4 or NO3 values 
+csn15.2[csn15.2==-999] <- NA
+csn15.2 <- drop_na(csn15.2, SO4, NO3)
+csn15.2$CA <- ifelse(is.na(csn15.2$CA) | csn15.2$CA < 0, 0, csn15.2$CA)
+csn15.2$CHL <- ifelse(is.na(csn15.2$CHL) | csn15.2$CHL < 0, 0, csn15.2$CHL)
+csn15.2$MG <- ifelse(is.na(csn15.2$MG) | csn15.2$MG < 0, 0, csn15.2$MG)
+csn15.2$K <- ifelse(is.na(csn15.2$K) | csn15.2$CA < 0, 0, csn15.2$K)
+csn15.2$NAf <- ifelse(is.na(csn15.2$NAf) | csn15.2$NAf < 0, 0, csn15.2$NAf)
+
+csn16.2[csn16.2==-999] <- NA
+csn16.2 <- drop_na(csn16.2, SO4, NO3)
+csn16.2$CA <- ifelse(is.na(csn16.2$CA) | csn16.2$CA < 0, 0, csn16.2$CA)
+csn16.2$CHL <- ifelse(is.na(csn16.2$CHL) | csn16.2$CHL < 0, 0, csn16.2$CHL)
+csn16.2$MG <- ifelse(is.na(csn16.2$MG) | csn16.2$MG < 0, 0, csn16.2$MG)
+csn16.2$K <- ifelse(is.na(csn16.2$K) | csn16.2$CA < 0, 0, csn16.2$K)
+csn16.2$NAf <- ifelse(is.na(csn16.2$NAf) | csn16.2$NAf < 0, 0, csn16.2$NAf)
+
+#drop all PM2.5 columns bc no data -- use daily PM2.5 data instead (EPA PM2.5 daily data instead)
+csn15.2 <- csn15.2[,-c(14,28,29)]
+csn16.2 <- csn16.2[,-c(14,28,29)]
+
+#now write to CSVs and run ISORROPIA! 
+write.csv(csn15.2, "D:/MMF/eta2/data/isorropia/csn15.2_isoinputs.csv")
+write.csv(csn16.2, "D:/MMF/eta2/data/isorropia/csn16.2_isoinputs.csv")
+
+csn15.2iso <- read.table("C:/Users/madif/Desktop/ISO/eta2/csn15.dat", header=T)
+csn16.2iso <- read.table("C:/Users/madif/Desktop/ISO/eta2/csn16.dat", header=T)
+
+csn15.2$ALW <- csn15.2iso$WATER
+csn16.2$ALW <- csn16.2iso$WATER
+
+# csn15.3 <- aggregate(csn15, by=list(csn15$SiteCode, csn15$Month), FUN="mean", na.rm=T)
+# csn16.3 <- aggregate(csn16, by=list(csn16$SiteCode, csn16$Month), FUN="mean", na.rm=T)
+
+#upload EPA daily PM2.5 data to merge w/CSN since no CSN reported PM2.5 mass >:(
+epa1516 <- read_xlsx("D:/MMF/eta2/data/cmaq/epa_dailypm25_2015-2016.xlsx", col_names=T)
+colnames(epa1516) <- c("Datasetd","EPASiteCode","POCd","Date","Site","Latitude","Longitude","Elevation","EPACode","PM2.5")
+epa1516$Date <- as.Date(epa1516$Date, format="%m/%d/%Y")
+
+epa1516$POCd <- ifelse(epa1516$POCd==2, NA, epa1516$POCd)
+epa1516 <- drop_na(epa1516, POCd)
+
+#these will be lower bc of the POC dropping
+csn15.2 <- merge(csn15.2, epa1516, by=c("EPASiteCode","Date","Latitude","Longitude","Elevation","Site","EPACode"))
+csn16.2 <- merge(csn16.2, epa1516, by=c("EPASiteCode","Date","Latitude","Longitude","Elevation","Site","EPACode"))
+
+#now merge with aeronet dataset! 
+aerocsn15 <- merge(aero15.2, csn15.2, by=c("AERO_Site","Site","Date","Year","Month","near"))
+aerocsn16 <- merge(aero16.2, csn16.2, by=c("AERO_Site","Site","Date","Year","Month","near"))
+
+
+#now merge IMPROVE and EPA sites together!
+aeroimp15.2 <- aeroimp15[,c(1:8,12:19,24:25,34,42,44:47,49:50,53,54,62)]
+aeroimp16.2 <- aeroimp16[,c(1:8,12:19,24:25,34,42,44:47,49:50,53,54,62)]
+aerocsn15.2 <- aerocsn15[,c(1,3:8,12:19,25:26,29,35,43,45:47,49:50,53,54,62,65)]
+aerocsn16.2 <- aerocsn16[,c(1,3:8,12:19,25:26,29,35,43,45:47,49:50,53,54,62,65)]
+
+aeroaug15 <- rbind(aeroimp15.2, aerocsn15.2)
+aerojan16 <- rbind(aeroimp16.2, aerocsn16.2)
+
+#write to CSV for Yinting
+write.csv(aeroaug15, "D:/MMF/eta2/data/cmaq/yinting_aug15.csv")
+write.csv(aerojan16, "D:/MMF/eta2/data/cmaq/yinting_jan16.csv")
+
+ccnyaug15 <- subset(aeroaug15, AERO_Site=="CCNY")
+write.csv(ccnyaug15, "D:/MMF/eta2/data/cmaq/yinting_ccnyoopsie.csv")
+
+ytcaug15 <- read.csv("D:/MMF/eta2/data/cmaq/madi_aug15.csv", header=T)
+ytcjan16 <- read.csv("D:/MMF/eta2/data/cmaq/madi_jan16.csv", header=T)
+ytcccny <- read.csv("D:/MMF/eta2/data/cmaq/ccnyoops.csv", header=T)
+
+ytcaug15 <- rbind(ytcaug15,ytcccny)
+
+aeroaug15 <- aeroaug15[order(aeroaug15$AERO_Site, aeroaug15$Date),]
+ytcaug15 <- ytcaug15[order(ytcaug15$AERO_Site),]
+
+aeroaug15$NO3_v <- ytcaug15$NO3_v
+aerojan16$NO3_v <- ytcjan16$NO3_v
+aeroaug15$NO3tot <- aeroaug15$NO3 + aeroaug15$NO3_v
+aerojan16$NO3tot <- aerojan16$NO3 + aerojan16$NO3_v
+
+write.csv(aeroaug15, "D:/MMF/eta2/data/isorropia/cmaq_aug15new.csv")
+write.csv(aerojan16, "D:/MMF/eta2/data/isorropia/cmaq_jan16new.csv")
+
+newaug15alw <- read.table("C:/Users/madif/Desktop/ISO/eta2/cmaq_aug15new.dat", header=T)
+newjan16alw <- read.table("C:/Users/madif/Desktop/ISO/eta2/cmaq_jan16new.dat", header=T)
+
+aeroaug15$ALW_no3v <- newaug15alw$WATER
+aerojan16$ALW_no3v <- newjan16alw$WATER
+
+aeroaug15$etawet <- (4/3)*(aeroaug15$PM2.5 + aeroaug15$NO3_v + aeroaug15$ALW_no3v) / aeroaug15$AOD_440nm
+aerojan16$etawet <- (4/3)*(aerojan16$PM2.5 + aerojan16$NO3_v + aerojan16$ALW_no3v) / aerojan16$AOD_440nm
+aeroaug15$etadry <- (4/3)*(aeroaug15$PM2.5 + aeroaug15$NO3_v) / aeroaug15$AOD_440nm
+aerojan16$etadry <- (4/3)*(aerojan16$PM2.5 + aerojan16$NO3_v) / aerojan16$AOD_440nm
+
+#aggregate by the month
+aeroaug15agg <- aggregate(aeroaug15, by=list(aeroaug15$AERO_Site, aeroaug15$Month), FUN="mean", na.rm=T)
+aerojan16agg <- aggregate(aerojan16, by=list(aerojan16$AERO_Site, aerojan16$Month), FUN="mean", na.rm=T)
+aeroaug15agg$AERO_Site <- aeroaug15agg$Group.1
+aeroaug15agg$Group.1 <- NULL
+aeroaug15agg$Group.2 <- NULL
+aerojan16agg$AERO_Site <- aerojan16agg$Group.1
+aerojan16agg$Group.1 <- NULL
+aerojan16agg$Group.2 <- NULL
+
+
+
+## hourly eta analysis
+aug15hr <- subset(aeronethr, Year==2015 & Month==8)
+jan16hr <- subset(aeronethr, Year==2016 & Month==1)
+
+aug15hr <- aggregate(aug15hr, by=list(aug15hr$AERONET_Site, aug15hr$Date, aug15hr$Hour), FUN="mean", na.rm=T)
+aug15hr$AERONET_Site <- aug15hr$Group.1
+aug15hr$Group.1 <- NULL
+aug15hr$Group.2 <- NULL
+aug15hr$Group.3 <- NULL
+jan16hr <- aggregate(jan16hr, by=list(jan16hr$AERONET_Site, jan16hr$Date, jan16hr$Hour), FUN="mean", na.rm=T)
+jan16hr$AERONET_Site <- jan16hr$Group.1
+jan16hr$Group.1 <- NULL
+jan16hr$Group.2 <- NULL
+jan16hr$Group.3 <- NULL
+
+hrsites <- c("BONDVILLE","Fresno_2","GSFC","MD_Science_Center")
+
+# CMAQ files
+janfiles <- list.files("D:/MMF/eta2/data/hourly/", pattern=".*._jan.csv")
+augfiles <- list.files("D:/MMF/eta2/data/hourly/", pattern=".*._aug.csv")
+
+setwd("D:/MMF/eta2/data/hourly/")
+
+jan <- list()
+jancmaq <- list()
+for (i in 1:(length(janfiles))){
+  cmaq <- read.csv(janfiles[[i]], sep=",", header=T) 
+  colnames(cmaq) <- c("DateTime","EtaDry","EtaDry_RHcorr","EtaWet","EtaWet_RHcorr","CMAQ_PM2.5","CMAQ_ALW")
+  cmaq$Date <- as.Date(substring(cmaq$DateTime,1,10), format="%Y-%m-%d")
+  cmaq$Hour <- as.numeric(substring(cmaq$DateTime,12,13))
+  cmaq$AERONET_Site <- str_extract(janfiles[[i]], ".*(?=\\_jan.csv)")
+  cmaqmerge <- merge(jan16hr, cmaq, by=c("AERONET_Site","Date","Hour"))
+  jan[[i]] <- cmaqmerge
+}
+jancmaq <- do.call(rbind, jan)
+
+aug <- list()
+augcmaq <- list()
+for (i in 1:(length(augfiles))){
+  cmaq <- read.csv(augfiles[[i]], sep=",", header=T) 
+  colnames(cmaq) <- c("DateTime","EtaDry","EtaDry_RHcorr","EtaWet","EtaWet_RHcorr","CMAQ_PM2.5","CMAQ_ALW")
+  cmaq$Date <- as.Date(substring(cmaq$DateTime,1,10), format="%Y-%m-%d")
+  cmaq$Hour <- as.numeric(substring(cmaq$DateTime,12,13))
+  cmaq$AERONET_Site <- str_extract(augfiles[[i]], ".*(?=\\_aug.csv)")
+  cmaqmerge <- merge(aug15hr, cmaq, by=c("AERONET_Site","Date","Hour"))
+  aug[[i]] <- cmaqmerge
+}
+augcmaq <- do.call(rbind, aug)
+
+jancmaq$etaepa <- jancmaq$Sample.Measurement / jancmaq$AOD_440nm
+augcmaq$etaepa <- augcmaq$Sample.Measurement / augcmaq$AOD_440nm
+
+##clean up datasets (remove negative values + adjust to local times)
+#drop Billerica & Sioux Falls from August 2015 dataset to compare same 4 sites together!
+augcmaq <- subset(augcmaq, AERONET_Site!="Billerica" & AERONET_Site!="Sioux_Falls")
+
+jancmaq$Sample.Measurement <- ifelse(jancmaq$Sample.Measurement < 0, 0, jancmaq$Sample.Measurement)
+augcmaq$Sample.Measurement <- ifelse(augcmaq$Sample.Measurement < 0, 0, augcmaq$Sample.Measurement)
+
+jancmaq$Hour2 <- jancmaq$Hour + jancmaq$GMT.Offset
+jancmaq$Hour2 <- ifelse(jancmaq$Hour2 < 0, jancmaq$Hour2+24, jancmaq$Hour2)
+augcmaq$Hour2 <- augcmaq$Hour + augcmaq$GMT.Offset
+augcmaq$Hour2 <- ifelse(augcmaq$Hour2 < 0, augcmaq$Hour2+24, augcmaq$Hour2)
+
+#now dropping certain hours for some sites for lack of sample #s
+jancmaq$Hour2 <- ifelse(jancmaq$AERONET_Site=="BONDVILLE" & jancmaq$Hour2==7, NA, jancmaq$Hour2)
+jancmaq <- drop_na(jancmaq, Hour2)
+augcmaq$Hour2 <- ifelse(augcmaq$AERONET_Site=="BONDVILLE" & augcmaq$Hour2==5, NA,
+                        ifelse(augcmaq$AERONET_Site=="Fresno_2" & augcmaq$Hour2==16 | augcmaq$Hour2==18, NA,
+                               ifelse(augcmaq$AERONET_Site=="GSFC" & augcmaq$Hour2==5, NA,
+                                      ifelse(augcmaq$AERONET_Site=="MD_Science_Center" & augcmaq$Hour2==5, NA, augcmaq$Hour2))))
+augcmaq <- drop_na(augcmaq, Hour2)
+
+
+jancmaq <- drop_na(jancmaq, EtaDry_RHcorr, EtaWet_RHcorr)
+augcmaq <- drop_na(augcmaq, EtaDry_RHcorr, EtaWet_RHcorr)
+
+## PLOTS ####
+
+bo16 <- ggplot(data=subset(jancmaq, AERONET_Site=="BONDVILLE"), aes(Hour2-0.22, etaepa, group=Hour2))+geom_text(aes(x=5.5, y=400, label="(c)", hjust=0), size=5, color="black")+
+  geom_boxplot(aes(color='c1', fill='c1'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="BONDVILLE"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="BONDVILLE"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,400), breaks=c(0,100,200,300,400), labels=c(0,100,200,300,400))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title.x=element_text(size=14, color="white"), 
+        axis.title.y=element_text(size=14, color="black"), axis.text=element_text(size=12, color="black"), axis.line=element_line(color="black"), 
+        axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), legend.text=element_text(size=12), legend.position="none")
+fr16 <- ggplot(data=subset(jancmaq, AERONET_Site=="Fresno_2"), aes(Hour2-0.22, etaepa, group=Hour2))+geom_text(aes(x=5.5, y=400, label="(a)", hjust=0), size=5, color="black")+
+  geom_vline(xintercept=10.5, linetype="longdash", color="black") + geom_vline(xintercept=13.5, linetype="longdash", color="black")+
+  geom_boxplot(aes(color='c1',fill='c1'),stat="boxplot",position="dodge2",width=0.3,outlier.shape=NA)+geom_text(aes(x=12,y=400,label="Winter",fontface="bold"),size=5,color="black")+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="Fresno_2"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="Fresno_2"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,400), breaks=c(0,100,200,300,400), labels=c(0,100,200,300,400))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title.x=element_text(size=14, color="white"), 
+        axis.title.y=element_text(size=14, color="black"), axis.text=element_text(size=12, color="black"), axis.line=element_line(color="black"), 
+        axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), legend.text=element_text(size=12), legend.position="none")
+gs16 <- ggplot(data=subset(jancmaq, AERONET_Site=="GSFC"), aes(Hour2-0.22, etaepa, group=Hour2))+geom_text(aes(x=5.5, y=400, label="(e)", hjust=0), size=5, color="black")+
+  geom_boxplot(aes(color='c1', fill='c1'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="GSFC"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="GSFC"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,400), breaks=c(0,100,200,300,400), labels=c(0,100,200,300,400))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title.x=element_text(size=14, color="white"), 
+        axis.title.y=element_text(size=14, color="black"), axis.text=element_text(size=12, color="black"), axis.line=element_line(color="black"), 
+        axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), legend.text=element_text(size=12), legend.position="none")
+md16 <- ggplot(data=subset(jancmaq,AERONET_Site=="MD_Science_Center"),aes(Hour2-0.22,etaepa,group=Hour2))+geom_text(aes(x=5.5, y=400,label="(g)",hjust=0),size=5,color="black")+
+  geom_boxplot(aes(color='c1', fill='c1'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="MD_Science_Center"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(janhrmeans, AERONET_Site=="MD_Science_Center"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,400), breaks=c(0,100,200,300,400), labels=c(0,100,200,300,400))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title=element_text(size=14, color="black"), 
+        axis.text=element_text(size=12, color="black"), axis.line=element_line(color="black"), axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), 
+        legend.text=element_text(size=12), legend.position="none")
+bo15 <- ggplot(data=subset(augcmaq, AERONET_Site=="BONDVILLE"), aes(Hour2-0.22, etaepa, group=Hour2))+geom_text(aes(x=5.5, y=200, label="(d)", hjust=0), size=5, color="black")+
+  geom_boxplot(aes(color='c1', fill='c1'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="BONDVILLE"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="BONDVILLE"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,200), breaks=c(0,50,100,150,200), labels=c(0,50,100,150,200), sec.axis=sec_axis(trans=~./1, name="Bondville"))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title.x=element_text(size=14, color="white"),
+        axis.text.x=element_text(size=12, color="black"), axis.line=element_line(color="black"), axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), 
+        legend.text=element_text(size=12), legend.position="none", axis.title.y.left=element_text(size=14, color="white"), axis.line.y.right=element_blank(), 
+        axis.title.y.right=element_text(size=14, color="black", face="bold"), axis.text.y.right=element_blank(), axis.ticks.y.right=element_blank(),
+        axis.text.y.left=element_text(size=12, color="black"))
+fr15 <- ggplot(data=subset(augcmaq, AERONET_Site=="Fresno_2"), aes(Hour2-0.22, etaepa, group=Hour2))+geom_text(aes(x=5.5, y=200, label="(b)", hjust=0), size=5, color="black")+
+  geom_boxplot(aes(color='c1',fill='c1'),stat="boxplot",position="dodge2",width=0.3,outlier.shape=NA)+geom_text(aes(x=12,y=200,label="Summer",fontface="bold"),size=5,color="black")+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="Fresno_2"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="Fresno_2"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,200), breaks=c(0,50,100,150,200), labels=c(0,50,100,150,200), sec.axis=sec_axis(trans=~./1, name="Fresno"))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title.x=element_text(size=14, color="white"),
+        axis.text.x=element_text(size=12, color="black"), axis.line=element_line(color="black"), axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), 
+        legend.text=element_text(size=12), legend.position="none", axis.title.y.left=element_text(size=14, color="white"), axis.line.y.right=element_blank(), 
+        axis.title.y.right=element_text(size=14, color="black", face="bold"), axis.text.y.right=element_blank(), axis.ticks.y.right=element_blank(),
+        axis.text.y.left=element_text(size=12, color="black"))
+gs15 <- ggplot(data=subset(augcmaq, AERONET_Site=="GSFC"), aes(Hour2-0.22, etaepa, group=Hour2))+geom_text(aes(x=5.5, y=200, label="(f)", hjust=0), size=5, color="black")+
+  geom_boxplot(aes(color='c1', fill='c1'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="GSFC"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="GSFC"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,200), breaks=c(0,50,100,150,200), labels=c(0,50,100,150,200), sec.axis=sec_axis(trans=~./1, name="GSFC"))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title.x=element_text(size=14, color="white"),
+        axis.text.x=element_text(size=12, color="black"), axis.line=element_line(color="black"), axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), 
+        legend.text=element_text(size=12), legend.position="none", axis.title.y.left=element_text(size=14, color="white"), axis.line.y.right=element_blank(), 
+        axis.title.y.right=element_text(size=14, color="black", face="bold"), axis.text.y.right=element_blank(), axis.ticks.y.right=element_blank(),
+        axis.text.y.left=element_text(size=12, color="black"))
+md15 <- ggplot(data=subset(augcmaq,AERONET_Site=="MD_Science_Center"),aes(Hour2-0.22,etaepa,group=Hour2))+geom_text(aes(x=5.5, y=200,label="(h)",hjust=0),size=5,color="black")+
+  geom_boxplot(aes(color='c1', fill='c1'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_boxplot(aes(Hour2+0.22, y=EtaDry_RHcorr, color='c2', fill='c2'), stat="boxplot", position="dodge2", width=0.3, outlier.shape=NA)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="MD_Science_Center"), aes(Hour2-0.22, y=etaepa_mean, color='c1'), fill="lightblue", shape=21, size=2)+
+  geom_point(data=subset(aughrmeans, AERONET_Site=="MD_Science_Center"), aes(Hour2+0.22, y=EtaDry_mean, color='c2'), fill="chocolate", shape=21, size=2)+
+  scale_color_manual("", values=c("black","coral4"), labels=c("Surface","Model"))+scale_fill_manual("", values=c("dodgerblue","burlywood"), labels=c("Surface","Model"))+
+  scale_x_continuous("Local Time", limits=c(5.5,17.5), breaks=c(6,9,12,15,18), labels=c(6,9,12,15,18))+
+  scale_y_continuous(expression(eta~(mu*g~m^{-3})), limits=c(0,200), breaks=c(0,50,100,150,200), labels=c(0,50,100,150,200), sec.axis=sec_axis(trans=~./1, name="MDSC"))+
+  theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), panel.background=element_blank(), axis.title.x=element_text(size=14, color="black"),
+        axis.text.x=element_text(size=12, color="black"), axis.line=element_line(color="black"), axis.ticks.length=unit(0.05, "inch"), legend.key=element_blank(), 
+        legend.text=element_text(size=12), legend.position=c(0.7,0.85), axis.title.y.left=element_text(size=14, color="white"), axis.line.y.right=element_blank(), 
+        axis.title.y.right=element_text(size=14, color="black", face="bold"), axis.text.y.right=element_blank(), axis.ticks.y.right=element_blank(),
+        axis.text.y.left=element_text(size=12, color="black"))
+
+hrly <- fr16 + fr15 + bo16 + bo15 + gs16 + gs15 + md16 + md15 + plot_layout(ncol=2, nrow=4) + guides(color="none")
+mypath <- file.path("D:/MMF/eta2/plots", paste("hrlyboxplots_aug15jan16.png"))
+png(filename=mypath, width=8, height=10, units="in", res=300)
+print(hrly)
+dev.off()
+
+
+## new plot -- difference in medians ####
+
+augmeds1 <- list()
+augmeds2 <- list()
+augmeds3 <- list()
+janmeds1 <- list()
+janmeds2 <- list()
+janmeds3 <- list()
+for(i in hrsites){
+  site1 <- subset(augcmaq, AERONET_Site==i)
+  site2 <- subset(jancmaq, AERONET_Site==i)
+  for(j in 6:17){
+    hr1 <- subset(site1, Hour2==j)
+    hr2 <- subset(site2, Hour2==j)
+    a <- median(hr1$etaepa, na.rm=T)
+    b <- median(hr1$EtaDry_RHcorr, na.rm=T)
+    c <- median(hr1$EtaWet_RHcorr, na.rm=T)
+    d <- median(hr2$etaepa, na.rm=T)
+    e <- median(hr2$EtaDry_RHcorr, na.rm=T)
+    f <- median(hr2$EtaWet_RHcorr, na.rm=T)
+    augmeds <- data.frame(AERONET_Site=i)
+    janmeds <- data.frame(AERONET_Site=i)
+    augmeds$Hour2 <- j
+    augmeds$epamed <- a
+    augmeds$etadry <- b
+    augmeds$etawet <- c
+    janmeds$Hour2 <- j
+    janmeds$epamed <- d
+    janmeds$etadry <- e
+    janmeds$etawet <- f
+    augmeds1[[j]] <- augmeds
+    janmeds1[[j]] <- janmeds
+  }
+  augmeds2[[i]] <- do.call(rbind, augmeds1)
+  janmeds2[[i]] <- do.call(rbind, janmeds1)
+}
+augmeds3 <- do.call(rbind,augmeds2)
+janmeds3 <- do.call(rbind,janmeds2)
+
+
+augmeds3$etadiff <- abs(augmeds3$etadry-augmeds3$epamed)
+janmeds3$etadiff <- abs(janmeds3$etadry-janmeds3$epamed)
+
+alwaug <- read.table(text="AERONET_Site ALW
+                     BONDVILLE 6.8621
+                     Fresno_2 1.0159
+                     GSFC 9.3290
+                     MD_Science_Center 9.8750", header=T)
+alwjan <- read.table(text="AERONET_Site ALW
+                     BONDVILLE 3.4139
+                     Fresno_2 3.0241
+                     GSFC 3.7921
+                     MD_Science_Center 3.8941", header=T)
+
+augmeds3 <- merge(augmeds3, alwaug, by=c("AERONET_Site"))
+janmeds3 <- merge(janmeds3, alwjan, by=c("AERONET_Site"))
+
+augmedsagg <- aggregate(augmeds3, by=list(augmeds3$AERONET_Site), FUN="median", na.rm=T)
+janmedsagg <- aggregate(janmeds3, by=list(janmeds3$AERONET_Site), FUN="median", na.rm=T)
+augmedsagg$AERONET_Site <- augmedsagg$Group.1
+augmedsagg$Group.1 <- NULL
+janmedsagg$AERONET_Site <- janmedsagg$Group.1
+janmedsagg$Group.1 <- NULL
+
+
+dif <- ggplot(augmeds3, aes(ALW, etadiff))+
+  geom_point(aes(shape=AERONET_Site, color='summer', size=Hour2))+
+  geom_point(data=janmeds3, aes(ALW, etadiff, shape=AERONET_Site, color='winter', size=Hour2))+
+  scale_shape_manual("Site", values=c(1,6,2,0), labels=c("Bondville","Fresno","GSFC","MDSC"))+
+  scale_color_manual("Season", values=c("goldenrod3","steelblue"), labels=c("Summer","Winter"))+
+  scale_size_continuous("Hour", range(2,6), breaks=c(6,9,12,15), limits=c(6,17), labels=c(6,9,12,15))+
+  scale_x_continuous(expression("Average ALW"~(mu*g~m^{-3})), breaks=c(0,2,4,6,8,10))+
+  scale_y_continuous(expression("Difference in Medians"~(mu*g~m^{-3})), breaks=c(0,15,30,45,60,75))+
+  theme_classic(base_size=14)+theme(legend.position="right", axis.text=element_text(size=14, color="black"),
+                                    legend.title=element_text(size=13, color="black"))
+dif
+mypath <- file.path("D:/MMF/eta2/plots", paste("model_v_obs_diffs.png"))
+png(filename=mypath, width=7, height=5, units="in", res=300)
+print(dif)
+dev.off()
+
+
+for(i in aerocompsites){
+  site <- subset(aerocomp3, AERONET_Site==i)
+  for(j in 1:4){
+    szn <- subset(site, Season==j)
+    a <- mean(szn$ALW_no3v, na.rm=T)
+    print(c(i,j,a))
+  }
+}
+
+
+
