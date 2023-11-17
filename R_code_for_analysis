@@ -191,7 +191,7 @@ for (i in 1:(length(epafiles))){
                      "First.Max.Hour","AQI","Method.Code","Method.Name","Local.Site.Name","Address","State.Name",
                      "County.Name","City.Name","CBSA.Name","Date.of.Last.Change","AQSCode")
   epamerge <- merge(aqsaero, epa, by=c("Local.Site.Name","Lat_EPA","Lon_EPA","AQSCode","Datum","State.Code","County.Code",
-                                           "Site.Number","State.Name","County.Name","City.Name"))
+                                       "Site.Number","State.Name","County.Name","City.Name"))
   epac[[i]] <- epamerge
 }
 epachem <- do.call(rbind, epac)
@@ -250,13 +250,13 @@ epachem2 <- dcast(data=epachem.1, formula=Lat_EPA+Lon_EPA+AQSCode+State.Code+Cou
 epachem2[epachem2==-999] <- NA
 
 epachem2$SiteCode <- ifelse(epachem2$AERONET_Site=="Billerica", "LOND1",
-                                ifelse(epachem2$AERONET_Site=="BONDVILLE", "BOND1",
-                                       ifelse(epachem2$AERONET_Site=="Fresno", "FRES1", 
-                                              ifelse(epachem2$AERONET_Site=="GSFC", "WASH1",
-                                                     ifelse(epachem2$AERONET_Site=="MD_Science_Center", "WASH1", 
-                                                            ifelse(epachem2$AERONET_Site=="Sioux_Falls", "BLMO1",
-                                                                  ifelse(epachem2$AERONET_Site=="CCNY", "CCNY1",
-                                                                         ifelse(epachem2$AERONET_Site=="Fresno_2", "FRES1", NA))))))))
+                            ifelse(epachem2$AERONET_Site=="BONDVILLE", "BOND1",
+                                   ifelse(epachem2$AERONET_Site=="Fresno", "FRES1", 
+                                          ifelse(epachem2$AERONET_Site=="GSFC", "WASH1",
+                                                 ifelse(epachem2$AERONET_Site=="MD_Science_Center", "WASH1", 
+                                                        ifelse(epachem2$AERONET_Site=="Sioux_Falls", "BLMO1",
+                                                               ifelse(epachem2$AERONET_Site=="CCNY", "CCNY1",
+                                                                      ifelse(epachem2$AERONET_Site=="Fresno_2", "FRES1", NA))))))))
 
 
 epachem2 <- merge(epachem2, ecmwf, by=c("SiteCode","Date"))
@@ -474,7 +474,7 @@ aerocomp$soil <- (2.2 * aerocomp$AL) + (2.49 * aerocomp$SI) + (1.63 * aerocomp$C
 
 #calculate OM:OC
 aerocomp$omoc <- (aerocomp$PM2.5 - aerocomp$ammSO4 - aerocomp$ammNO3 - aerocomp$EC - 
-                   aerocomp$soil - (1.8 * aerocomp$CHL))/aerocomp$OCtot
+                    aerocomp$soil - (1.8 * aerocomp$CHL))/aerocomp$OCtot
 
 #remove NAs --> lots of missing data in Cl
 aerocomp$omoc <- ifelse(aerocomp$omoc < 0, NA, aerocomp$omoc)
@@ -501,13 +501,13 @@ aeroratios <- gather(aero.final.ratios, fall_ratio:win_ratio, key="omoc", value=
 aerosites <- merge(aerosites, aeroratios, by=c("AERONET_Site"))
 
 aerosites$Seasons <- ifelse(aerosites$omoc=="win_ratio", "Winter",
-                           ifelse(aerosites$omoc=="spr_ratio", "Spring",
-                                  ifelse(aerosites$omoc=="sum_ratio", "Summer",
-                                         ifelse(aerosites$omoc=="fall_ratio","Fall", NA))))
+                            ifelse(aerosites$omoc=="spr_ratio", "Spring",
+                                   ifelse(aerosites$omoc=="sum_ratio", "Summer",
+                                          ifelse(aerosites$omoc=="fall_ratio","Fall", NA))))
 aerosites$Seasons <- ifelse(aerosites$Season == 1 & aerosites$Seasons %in% c("Winter"), aerosites$Seasons,
-                           ifelse(aerosites$Season == 2 & aerosites$Seasons %in% c("Spring"), aerosites$Seasons,
-                                  ifelse(aerosites$Season == 3 & aerosites$Seasons %in% c("Summer"), aerosites$Seasons,
-                                         ifelse(aerosites$Season == 4 & aerosites$Seasons %in% c("Fall"), aerosites$Seasons, NA))))
+                            ifelse(aerosites$Season == 2 & aerosites$Seasons %in% c("Spring"), aerosites$Seasons,
+                                   ifelse(aerosites$Season == 3 & aerosites$Seasons %in% c("Summer"), aerosites$Seasons,
+                                          ifelse(aerosites$Season == 4 & aerosites$Seasons %in% c("Fall"), aerosites$Seasons, NA))))
 aerosites <- drop_na(aerosites, Seasons)
 
 aerosites$ratio <- ifelse(is.na(aerosites$ratio), 1.8, aerosites$ratio)
@@ -565,9 +565,9 @@ aqssites$Site.Closed.Year[is.na(aqssites$Site.Closed.Year)] <- 2022
 aqssites$Years.Operated <- aqssites$Site.Closed.Year - aqssites$Site.Opened.Year
 
 aqssites$Lat_EPA <- ifelse(aqssites$Lat_EPA < 25, NA, 
-                            ifelse(aqssites$Lat_EPA > 50, NA, aqssites$Lat_EPA))
+                           ifelse(aqssites$Lat_EPA > 50, NA, aqssites$Lat_EPA))
 aqssites$Lon_EPA <- ifelse(aqssites$Lon_EPA > -66, NA, 
-                             ifelse(aqssites$Lon_EPA < -124, NA, aqssites$Lon_EPA))
+                           ifelse(aqssites$Lon_EPA < -124, NA, aqssites$Lon_EPA))
 aqssites <- drop_na(aqssites, Lat_EPA, Lon_EPA)
 
 #NA (remove) any sites that closed before 2000 (long time series that is more current is more helpful)
@@ -1193,7 +1193,7 @@ for(i in aerocompsites){
 hitrates <- hitrates[,c(1:6,9:10,8,7)]
 hitrateslong <- pivot_longer(hitrates, dryslope:wetslope, names_to="var", values_to="val")
 hitrateslong$region2 <- as.factor(ifelse(hitrateslong$region==1, "Humid", 
-                                        ifelse(hitrateslong$region==2, "Arid", NA)))
+                                         ifelse(hitrateslong$region==2, "Arid", NA)))
 hitrateslong <- hitrateslong[order(hitrateslong$Site3),]
 labs <- unique(hitrateslong$Site2)
 hitrateslong$var <- as.factor(hitrateslong$var)
@@ -1227,12 +1227,12 @@ dev.off()
 aerocomp$OCtot <- ifelse(is.na(aerocomp$OCtot), 0, aerocomp$OCtot)
 aerocomp$OM <- ifelse(is.na(aerocomp$OM), 0, aerocomp$OM)
 aerocomp$PM_spec <- aerocomp$NO3 + aerocomp$SO4 + aerocomp$OM + aerocomp$NAf + aerocomp$CHL + 
-                        aerocomp$CA + aerocomp$K + aerocomp$MG
+  aerocomp$CA + aerocomp$K + aerocomp$MG
 
 # keep everything in ug/m3 or g/cm3
 # conversion: 1 g/cm3 = 1*10^12 ug/m3
 aerocomp$dry_rho <- ((1.725)*aerocomp$NO3 + (1.10)*aerocomp$SO4 + (1.4)*aerocomp$OM + (2.17)*(aerocomp$NAf+aerocomp$CHL) +
-                        (1.55)*aerocomp$CA + (0.862)*aerocomp$K + (1.738)*aerocomp$MG)/(aerocomp$PM_spec)
+                       (1.55)*aerocomp$CA + (0.862)*aerocomp$K + (1.738)*aerocomp$MG)/(aerocomp$PM_spec)
 
 #now do the r1/r2 equation (piecemeal for sanity)
 aerocomp$r1 <- (aerocomp$ALW_new/(1.0))^(1/3) + (aerocomp$PM2.5/aerocomp$dry_rho)^(1/3)
@@ -1252,6 +1252,12 @@ aerocomp <- merge(aerocomp, pbls, by="AERONET_Site")
 aerocomp$pblnorm_site <- aerocomp$pbl / aerocomp$pblmax
 
 ## FIGURE TWO ####
+alwno3new <- read.table("C:/Users/madif/Desktop/ISO/eta2/ALW_NO3_NEW.dat", header=T)
+aerocomp$ALW_no3v <- alwno3new$WATER
+alwnono3new <- read.table("C:/Users/madif/Desktop/ISO/eta2/ALW_NO_NO3_NEW.dat", header=T)
+aerocomp$ALW_new <- alwnono3new$WATER
+
+
 arid <- subset(aerocomp, region==2)
 humid <- subset(aerocomp, region==1)
 
@@ -1263,19 +1269,29 @@ arid$smooth_NO3 <- predict(loess(NO3 ~ as.numeric(Date), arid, span=0.05), newda
 arid$UB_NO3 <- predict(loess(NO3+NO3_v ~ as.numeric(Date), arid, span=0.05), newdata=arid$Date)
 humid$smooth_NO3 <- predict(loess(NO3 ~ as.numeric(Date), humid, span=0.05), newdata=humid$Date)
 humid$UB_NO3 <- predict(loess(NO3+NO3_v ~ as.numeric(Date), humid, span=0.05), newdata=humid$Date)
+arid$smooth_ALW <- predict(loess(ALW_new ~ as.numeric(Date), arid, span=0.05), newdata=arid$Date)
+arid$UB_ALW <- predict(loess(ALW_no3v ~ as.numeric(Date), arid, span=0.05), newdata=arid$Date)
+humid$smooth_ALW <- predict(loess(ALW_new ~ as.numeric(Date), humid, span=0.05), newdata=humid$Date)
+humid$UB_ALW <- predict(loess(ALW_no3v ~ as.numeric(Date), humid, span=0.05), newdata=humid$Date)
 
 
 
-d <- ggplot(aerocomp, aes(Date, ALW_new, group=factor(region)))+geom_text(aes(as.Date("2015-06-01"), 12, label="(e)"), size=5)+
-  geom_line(aes(color=factor(region), group=factor(region)), stat="smooth", method="loess", se=F, span=0.05, size=0.5, alpha=0.9)+
-  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
+d <- ggplot(humid, aes(Date, smooth_ALW, group=factor(region)))+geom_text(aes(as.Date("2015-06-01"), 12, label="(e)"), size=5)+
+  geom_line(data=arid, aes(Date, smooth_ALW, group=factor(region)), size=0.4)+ geom_line(size=0.4)+ ylim(c(0,12))
+d2 <- d + geom_ribbon(aes(ymin=smooth_ALW, ymax=UB_ALW, color=factor(region), group=factor(region), fill=factor(region)), size=0.3,
+                      outline.type="lower", alpha=0.5)+
+  geom_ribbon(data=arid, aes(ymin=smooth_ALW, ymax=UB_ALW, color=factor(region), group=factor(region), fill=factor(region)), size=0.3, 
+              outline.type="lower", alpha=0.5)+
+  scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"), guide="none")+
+  scale_fill_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"), guide="none")+
   scale_x_date("Date", limits=c(as.Date("2006-01-01"), as.Date("2015-12-31")), date_breaks="2 years", date_labels="%Y")+
   theme_classic(base_size=15)+ylab(expression("ALW"~(mu*g~m^{-3})))+theme(legend.position="none", axis.text=element_text(color="black"))
 e <- ggplot(aerocomp, aes(Date, AOD_440nm, group=factor(region)))+geom_text(aes(as.Date("2015-06-01"), 0.62, label="(b)"), size=5)+
   geom_line(aes(color=factor(region), group=factor(region)), stat="smooth", method="loess", se=F, span=0.05, size=0.5, alpha=0.9)+
   scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
   scale_x_date("Date", limits=c(as.Date("2006-01-01"), as.Date("2015-12-31")), date_breaks="2 years", date_labels="%Y")+
-  theme_classic(base_size=15)+ylab(expression("AOD"~(440~"nm")))+theme(legend.position="none", axis.text=element_text(color="black"))
+  theme_classic(base_size=15)+ylab(expression("AOD"~(440~"nm")))+
+  theme(legend.position="none", axis.text=element_text(color="black"), axis.title.x=element_text(color="white"))
 f <- ggplot(humid, aes(Date, smooth_PM2.5, group=factor(region)))+geom_text(aes(as.Date("2015-06-01"), 45, label="(a)"), size=5)+
   geom_line(data=arid, aes(Date, smooth_PM2.5, group=factor(region)), size=0.4)+ geom_line(size=0.4)
 f2 <- f + geom_ribbon(aes(ymin=smooth_PM2.5, ymax=UB_PM, color=factor(region), group=factor(region), fill=factor(region)), size=0.3,
@@ -1285,12 +1301,14 @@ f2 <- f + geom_ribbon(aes(ymin=smooth_PM2.5, ymax=UB_PM, color=factor(region), g
   scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"), guide="none")+
   scale_fill_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"), guide="none")+
   scale_x_date("Date", limits=c(as.Date("2006-01-01"), as.Date("2015-12-31")), date_breaks="2 years", date_labels="%Y")+
-  theme_classic(base_size=15)+ylab(expression("PM"[2.5]~(mu*g~m^{-3})))+theme(legend.position="none", axis.text=element_text(color="black"))
+  theme_classic(base_size=15)+ylab(expression("PM"[2.5]~(mu*g~m^{-3})))+
+  theme(legend.position="none", axis.text=element_text(color="black"), axis.title.x=element_text(color="white"))
 g <- ggplot(aerocomp, aes(Date, PM2.5/AOD_440nm, group=factor(region)))+geom_text(aes(as.Date("2015-06-01"), 320, label="(c)"), size=5)+
   geom_line(aes(color=factor(region), group=factor(region)), stat="smooth", method="loess", se=F, span=0.05, size=0.5, alpha=0.9)+
   scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
   scale_x_date("Date", limits=c(as.Date("2006-01-01"), as.Date("2015-12-31")), date_breaks="2 years", date_labels="%Y")+
-  theme_classic(base_size=15)+ylab(expression(eta~(mu*g~m^{-3})))+theme(legend.position="none", axis.text=element_text(color="black"))
+  theme_classic(base_size=15)+ylab(expression(eta~(mu*g~m^{-3})))+
+  theme(legend.position="none", axis.text=element_text(color="black"), axis.title.x=element_text(color="white"))
 b <- ggplot(aerocomp, aes(Date, (PM2.5+ALW_new+NO3_v)/AOD_440nm, group=factor(region)))+geom_text(aes(as.Date("2015-06-01"), 320, label="(f)"), size=5)+
   geom_line(aes(color=factor(region), group=factor(region)), stat="smooth", method="loess", se=F, span=0.05, size=0.5, alpha=0.9)+
   scale_color_manual("", values=c("navyblue","goldenrod4"), labels=c("Humid","Arid"))+
@@ -1307,12 +1325,11 @@ n2 <- n + geom_ribbon(aes(ymin=smooth_NO3, ymax=UB_NO3, color=factor(region), gr
   scale_x_date("Date", limits=c(as.Date("2006-01-01"), as.Date("2015-12-31")), date_breaks="2 years", date_labels="%Y")+
   theme_classic(base_size=15)+ylab(expression("Nitrate"~(mu*g~m^{-3})))+theme(legend.position="none", axis.text=element_text(color="black"))
 
-ls2 <-  f2 + e + g + n2 + d + b + plot_layout(ncol=3, nrow=2, guides='collect') & theme(legend.position="top")
+ls2 <-  f2 + e + g + n2 + d2 + b + plot_layout(ncol=3, nrow=2, guides='collect') & theme(legend.position="top")
 mypath <- file.path("D:/MMF/eta2/plots/", paste("loess_regimes_new06-15.png"))
 png(filename=mypath, width=12, height=6, units="in", res=300)
 print(ls2)
 dev.off()
-
 
 
 
@@ -1598,7 +1615,7 @@ aerohrsites <- drop_na(aerohrsites, Site)
 epahrsites <- data.frame(Site=epapmhrly$Local.Site.Name, AERO_Site=epapmhrly$AERONET_Site, Lat=epapmhrly$Lat_EPA, Lon=epapmhrly$Lon_EPA)
 epahrsites <- epahrsites[!duplicated(epahrsites),]
 epahrsites$AERO_Site <- ifelse(epahrsites$AERO_Site!="BONDVILLE" & epahrsites$AERO_Site!="Fresno_2" & 
-                             epahrsites$AERO_Site!="GSFC" & epahrsites$AERO_Site!="MD_Science_Center", NA, epahrsites$AERO_Site)
+                                 epahrsites$AERO_Site!="GSFC" & epahrsites$AERO_Site!="MD_Science_Center", NA, epahrsites$AERO_Site)
 epahrsites <- drop_na(epahrsites, AERO_Site)
 
 
@@ -1811,10 +1828,10 @@ pm <- ggplot(data=subset(aerocomp, Year>=2006 & Year<2016), aes(PM2.5+NO3_v+ALW_
   geom_point(aes(PM2.5+ALW, AOD_440nm, shape='c2', color='c2'), alpha=0.3)+
   geom_point(aes(PM2.5+NO3_v, AOD_440nm, shape='c3', color='c3'), alpha=0.3)+
   geom_point(aes(PM2.5, AOD_440nm, shape='c4', color='c4'), alpha=0.3)+
-  stat_regline_equation(label.y.npc="top",label.x.npc="left", aes(x=PM2.5+NO3_v+ALW_new, label=paste(..eq.label..,..rr.label.., sep="~~~")), color="black")+
-  stat_regline_equation(label.y.npc=0.905,label.x.npc="left", aes(x=PM2.5+ALW_new, label=paste(..eq.label..,..rr.label.., sep="~~~")), color="mediumblue")+
-  stat_regline_equation(label.y.npc=0.85,label.x.npc="left", aes(x=PM2.5+NO3_v, label=paste(..eq.label..,..rr.label.., sep="~~~")), color="olivedrab3")+
-  stat_regline_equation(label.y.npc=0.795,label.x.npc="left", aes(x=PM2.5, label=paste(..eq.label..,..rr.label.., sep="~~~")), color="darkorange")+
+  annotate("text", x=0, y=2.95, label="y = 0.053 + 0.010x   R^2 = 0.33", hjust=0, color="black")+
+  annotate("text", x=0, y=2.8, label="y = 0.055 + 0.010x   R^2 = 0.35", hjust=0, color="mediumblue")+
+  annotate("text", x=0, y=2.65, label="y = 0.091 + 0.001x   R^2 = 0.20", hjust=0, color="olivedrab3")+
+  annotate("text", x=0, y=2.5, label="y = 0.090 + 0.011x   R^2 = 0.22", hjust=0, color="darkorange")+
   scale_shape_manual("", values=c(1,2,3,4), labels=c(expression("PM"[2.5]~"+ "*Delta*"NO"[3]~"+ ALW"),expression("PM"[2.5]~"+ ALW"),
                                                      expression("PM"[2.5]~"+ "*Delta*"NO"[3]),expression("PM"[2.5])))+
   scale_color_manual("", values=c("black","mediumblue","olivedrab3","darkorange"), 
@@ -1872,7 +1889,7 @@ for(i in aerocompsites){
 aero1516 <- read.csv("D:/MMF/ETA_proj/data/orig_combined_data/All_Sites_Times_Daily_averages_AOD20.dat", header=T, skip=6)
 aero1516 <- aero1516[,c(1:7,10,19,22,25,26,80:82)]
 colnames(aero1516) <- c("AERO_Site","Date","Time","Day_of_Year","AOD_1640nm","AOD_1020nm","AOD_870nm","AOD_675nm","AOD_500nm",
-                       "AOD_440nm","AOD_380nm","AOD_340nm","Latitude","Longitude","Site_Elevation")
+                        "AOD_440nm","AOD_380nm","AOD_340nm","Latitude","Longitude","Site_Elevation")
 
 aero1516$Date <- as.Date(aero1516$Date, format="%d:%m:%Y")
 #subset lat lon [25,50] & [-125, -65]
